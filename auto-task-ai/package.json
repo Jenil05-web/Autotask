@@ -17,5 +17,8 @@
   "description": "Auto Task AI - Automate your daily tasks with AI",
   "devDependencies": {
     "concurrently": "^9.2.0"
+  },
+  "dependencies": {
+    "firebase": "^12.1.0"
   }
 }
