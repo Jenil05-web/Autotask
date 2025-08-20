@@ -28,11 +28,26 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Import routes
+const emailAutomationRoutes = require('./routes/emailAutomation');
+
 // Basic routes
 app.get('/', (req, res) => {
   res.json({ message: 'Auto Task AI Server is running!' });
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// API routes
+app.use('/api/email-automation', emailAutomationRoutes);
+
+// Legacy task route (keeping for backward compatibility)
 app.get('/api/tasks', (req, res) => {
   res.json({
     tasks: [
@@ -71,4 +86,5 @@ process.on('SIGINT', () => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📧 Email automation routes available at /api/email-automation`);
 });
