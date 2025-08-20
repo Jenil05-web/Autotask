@@ -9,8 +9,7 @@ import {
   LinearProgress,
   Alert,
   Tabs,
-  Tab,
-  Badge
+  Tab
 } from '@mui/material';
 import {
   Schedule as ScheduleIcon,
@@ -20,7 +19,6 @@ import {
   Add as AddIcon
 } from '@mui/icons-material';
 import EmailComposer from './EmailComposer';
-import EmailScheduleList from './EmailScheduleList';
 
 const EmailDashboard = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -90,7 +88,7 @@ const EmailDashboard = () => {
               {value || 0}
             </Typography>
           </Box>
-          <Box sx={{ color: `${color}.main`, fontSize: 40 }}>
+          <Box sx={{ color: `${color}.main` }}>
             {icon}
           </Box>
         </Box>
@@ -186,7 +184,14 @@ const EmailDashboard = () => {
 
           <Box>
             {activeTab === 0 && (
-              <EmailScheduleList onEdit={(email) => console.log('Edit email:', email)} />
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Scheduled Emails
+                </Typography>
+                <Typography color="text.secondary">
+                  Your scheduled emails will appear here. Click "Schedule New Email" to get started.
+                </Typography>
+              </Box>
             )}
             {activeTab === 1 && (
               <Typography color="text.secondary">
