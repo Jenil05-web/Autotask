@@ -12,9 +12,6 @@ import {
   Chip
 } from '@mui/material';
 import {
-  Task as TaskIcon,
-  Email as EmailIcon,
-  Schedule as ScheduleIcon,
   Add as AddIcon
 } from '@mui/icons-material';
 import EmailDashboard from '../components/EmailDashboard';
@@ -48,14 +45,10 @@ function Dashboard() {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
           <Tab 
-            icon={<TaskIcon />} 
-            label="General Tasks" 
-            iconPosition="start"
+            label="General Tasks"
           />
           <Tab 
-            icon={<EmailIcon />} 
-            label="Email Automation" 
-            iconPosition="start"
+            label="Email Automation"
           />
         </Tabs>
       </Box>

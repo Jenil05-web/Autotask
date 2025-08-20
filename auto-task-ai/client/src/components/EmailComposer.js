@@ -6,7 +6,6 @@ import {
   TextField,
   Button,
   Typography,
-  Chip,
   FormControl,
   InputLabel,
   Select,
@@ -21,9 +20,6 @@ import {
   DialogContent,
   DialogActions
 } from '@mui/material';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 
 const EmailComposer = ({ onSchedule, onCancel }) => {
   const [emailData, setEmailData] = useState({
@@ -32,7 +28,7 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
     bcc: '',
     subject: '',
     body: '',
-    scheduledFor: new Date(),
+    scheduledFor: '',
     personalization: {},
     recurring: {
       enabled: false,
@@ -62,7 +58,6 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
       [field]: value
     }));
     
-    // Clear error when user starts typing
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: null }));
     }
@@ -84,7 +79,6 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
     if (!emailData.recipients.trim()) {
       newErrors.recipients = 'At least one recipient is required';
     } else {
-      // Validate email format
       const emails = emailData.recipients.split(',').map(e => e.trim());
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emails.every(email => emailRegex.test(email))) {
@@ -100,8 +94,8 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
       newErrors.body = 'Email body is required';
     }
     
-    if (emailData.scheduledFor <= new Date()) {
-      newErrors.scheduledFor = 'Scheduled time must be in the future';
+    if (!emailData.scheduledFor) {
+      newErrors.scheduledFor = 'Scheduled time is required';
     }
 
     setErrors(newErrors);
@@ -112,7 +106,6 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
     if (!validateForm()) return;
 
     try {
-      // Create sample personalization data for preview
       const samplePersonalization = {
         recipientName: 'John Doe',
         companyName: 'Example Corp',
@@ -148,7 +141,7 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
       bcc: emailData.bcc ? emailData.bcc.split(',').map(e => e.trim()) : [],
       subject: emailData.subject,
       body: emailData.body,
-      scheduledFor: emailData.scheduledFor.toISOString(),
+      scheduledFor: new Date(emailData.scheduledFor).toISOString(),
       personalization: emailData.personalization,
       recurring: emailData.recurring.enabled ? emailData.recurring : undefined,
       followUp: emailData.followUp.enabled ? emailData.followUp : undefined,
@@ -159,294 +152,290 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
   };
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <Card sx={{ maxWidth: 800, margin: 'auto', mt: 2 }}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom>
-            Schedule Email
-          </Typography>
-          
-          <Grid container spacing={3}>
-            {/* Recipients */}
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Recipients"
-                placeholder="email1@example.com, email2@example.com"
-                value={emailData.recipients}
-                onChange={(e) => handleInputChange('recipients', e.target.value)}
-                error={!!errors.recipients}
-                helperText={errors.recipients || 'Separate multiple emails with commas'}
-                required
-              />
-            </Grid>
+    <Card sx={{ maxWidth: 800, margin: 'auto', mt: 2 }}>
+      <CardContent>
+        <Typography variant="h5" gutterBottom>
+          Schedule Email
+        </Typography>
+        
+        <Grid container spacing={3}>
+          {/* Recipients */}
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Recipients"
+              placeholder="email1@example.com, email2@example.com"
+              value={emailData.recipients}
+              onChange={(e) => handleInputChange('recipients', e.target.value)}
+              error={!!errors.recipients}
+              helperText={errors.recipients || 'Separate multiple emails with commas'}
+              required
+            />
+          </Grid>
 
-            {/* CC/BCC */}
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                label="CC"
-                placeholder="cc@example.com"
-                value={emailData.cc}
-                onChange={(e) => handleInputChange('cc', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                label="BCC"
-                placeholder="bcc@example.com"
-                value={emailData.bcc}
-                onChange={(e) => handleInputChange('bcc', e.target.value)}
-              />
-            </Grid>
+          {/* CC/BCC */}
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="CC"
+              placeholder="cc@example.com"
+              value={emailData.cc}
+              onChange={(e) => handleInputChange('cc', e.target.value)}
+            />
+          </Grid>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="BCC"
+              placeholder="bcc@example.com"
+              value={emailData.bcc}
+              onChange={(e) => handleInputChange('bcc', e.target.value)}
+            />
+          </Grid>
 
-            {/* Subject */}
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Subject"
-                value={emailData.subject}
-                onChange={(e) => handleInputChange('subject', e.target.value)}
-                error={!!errors.subject}
-                helperText={errors.subject}
-                required
-              />
-            </Grid>
+          {/* Subject */}
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Subject"
+              value={emailData.subject}
+              onChange={(e) => handleInputChange('subject', e.target.value)}
+              error={!!errors.subject}
+              helperText={errors.subject}
+              required
+            />
+          </Grid>
 
-            {/* Body */}
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                multiline
-                rows={8}
-                label="Email Body"
-                value={emailData.body}
-                onChange={(e) => handleInputChange('body', e.target.value)}
-                error={!!errors.body}
-                helperText={errors.body || 'Use {{variableName}} for personalization'}
-                required
-              />
-            </Grid>
+          {/* Body */}
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              multiline
+              rows={8}
+              label="Email Body"
+              value={emailData.body}
+              onChange={(e) => handleInputChange('body', e.target.value)}
+              error={!!errors.body}
+              helperText={errors.body || 'Use {{variableName}} for personalization'}
+              required
+            />
+          </Grid>
 
-            {/* Scheduling */}
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Scheduling Options
-              </Typography>
-            </Grid>
+          {/* Scheduling */}
+          <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom>
+              Scheduling Options
+            </Typography>
+          </Grid>
 
-            <Grid item xs={6}>
-              <DateTimePicker
-                label="Schedule For"
-                value={emailData.scheduledFor}
-                onChange={(newValue) => handleInputChange('scheduledFor', newValue)}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    fullWidth
-                    error={!!errors.scheduledFor}
-                    helperText={errors.scheduledFor}
-                  />
-                )}
-              />
-            </Grid>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              type="datetime-local"
+              label="Schedule For"
+              value={emailData.scheduledFor}
+              onChange={(e) => handleInputChange('scheduledFor', e.target.value)}
+              error={!!errors.scheduledFor}
+              helperText={errors.scheduledFor}
+              InputLabelProps={{ shrink: true }}
+              required
+            />
+          </Grid>
 
-            {/* Recurring Options */}
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={emailData.recurring.enabled}
-                    onChange={(e) => handleNestedChange('recurring', 'enabled', e.target.checked)}
-                  />
-                }
-                label="Recurring Email"
-              />
-            </Grid>
+          {/* Recurring Options */}
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={emailData.recurring.enabled}
+                  onChange={(e) => handleNestedChange('recurring', 'enabled', e.target.checked)}
+                />
+              }
+              label="Recurring Email"
+            />
+          </Grid>
 
-            {emailData.recurring.enabled && (
-              <>
-                <Grid item xs={4}>
-                  <FormControl fullWidth>
-                    <InputLabel>Frequency</InputLabel>
-                    <Select
-                      value={emailData.recurring.type}
-                      onChange={(e) => handleNestedChange('recurring', 'type', e.target.value)}
-                    >
-                      <MenuItem value="daily">Daily</MenuItem>
-                      <MenuItem value="weekly">Weekly</MenuItem>
-                      <MenuItem value="monthly">Monthly</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={4}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Hour (24h)"
-                    value={emailData.recurring.hour}
-                    onChange={(e) => handleNestedChange('recurring', 'hour', parseInt(e.target.value))}
-                    inputProps={{ min: 0, max: 23 }}
-                  />
-                </Grid>
-                <Grid item xs={4}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Minute"
-                    value={emailData.recurring.minute}
-                    onChange={(e) => handleNestedChange('recurring', 'minute', parseInt(e.target.value))}
-                    inputProps={{ min: 0, max: 59 }}
-                  />
-                </Grid>
-              </>
-            )}
+          {emailData.recurring.enabled && (
+            <>
+              <Grid item xs={4}>
+                <FormControl fullWidth>
+                  <InputLabel>Frequency</InputLabel>
+                  <Select
+                    value={emailData.recurring.type}
+                    onChange={(e) => handleNestedChange('recurring', 'type', e.target.value)}
+                  >
+                    <MenuItem value="daily">Daily</MenuItem>
+                    <MenuItem value="weekly">Weekly</MenuItem>
+                    <MenuItem value="monthly">Monthly</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Hour (24h)"
+                  value={emailData.recurring.hour}
+                  onChange={(e) => handleNestedChange('recurring', 'hour', parseInt(e.target.value))}
+                  inputProps={{ min: 0, max: 23 }}
+                />
+              </Grid>
+              <Grid item xs={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Minute"
+                  value={emailData.recurring.minute}
+                  onChange={(e) => handleNestedChange('recurring', 'minute', parseInt(e.target.value))}
+                  inputProps={{ min: 0, max: 59 }}
+                />
+              </Grid>
+            </>
+          )}
 
-            {/* Follow-up Options */}
-            <Grid item xs={12}>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="h6" gutterBottom>
-                Follow-up & Auto-Reply
-              </Typography>
-            </Grid>
+          {/* Follow-up Options */}
+          <Grid item xs={12}>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              Follow-up & Auto-Reply
+            </Typography>
+          </Grid>
 
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={emailData.followUp.enabled}
-                    onChange={(e) => handleNestedChange('followUp', 'enabled', e.target.checked)}
-                  />
-                }
-                label="Enable Follow-up if no reply"
-              />
-            </Grid>
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={emailData.followUp.enabled}
+                  onChange={(e) => handleNestedChange('followUp', 'enabled', e.target.checked)}
+                />
+              }
+              label="Enable Follow-up if no reply"
+            />
+          </Grid>
 
-            {emailData.followUp.enabled && (
-              <>
-                <Grid item xs={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Days after to follow up"
-                    value={emailData.followUp.daysAfter}
-                    onChange={(e) => handleNestedChange('followUp', 'daysAfter', parseInt(e.target.value))}
-                    inputProps={{ min: 1, max: 30 }}
-                  />
-                </Grid>
+          {emailData.followUp.enabled && (
+            <>
+              <Grid item xs={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Days after to follow up"
+                  value={emailData.followUp.daysAfter}
+                  onChange={(e) => handleNestedChange('followUp', 'daysAfter', parseInt(e.target.value))}
+                  inputProps={{ min: 1, max: 30 }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={3}
+                  label="Follow-up Message"
+                  value={emailData.followUp.message}
+                  onChange={(e) => handleNestedChange('followUp', 'message', e.target.value)}
+                  placeholder="Just checking in on my previous email..."
+                />
+              </Grid>
+            </>
+          )}
+
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={emailData.autoReply.enabled}
+                  onChange={(e) => handleNestedChange('autoReply', 'enabled', e.target.checked)}
+                />
+              }
+              label="Enable Auto-Reply when reply received"
+            />
+          </Grid>
+
+          {emailData.autoReply.enabled && (
+            <>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={emailData.autoReply.useAI}
+                      onChange={(e) => handleNestedChange('autoReply', 'useAI', e.target.checked)}
+                    />
+                  }
+                  label="Use AI-generated responses"
+                />
+              </Grid>
+              {!emailData.autoReply.useAI && (
                 <Grid item xs={12}>
                   <TextField
                     fullWidth
                     multiline
                     rows={3}
-                    label="Follow-up Message"
-                    value={emailData.followUp.message}
-                    onChange={(e) => handleNestedChange('followUp', 'message', e.target.value)}
-                    placeholder="Just checking in on my previous email..."
+                    label="Auto-Reply Message"
+                    value={emailData.autoReply.message}
+                    onChange={(e) => handleNestedChange('autoReply', 'message', e.target.value)}
+                    placeholder="Thank you for your reply..."
                   />
                 </Grid>
-              </>
-            )}
+              )}
+            </>
+          )}
 
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={emailData.autoReply.enabled}
-                    onChange={(e) => handleNestedChange('autoReply', 'enabled', e.target.checked)}
-                  />
-                }
-                label="Enable Auto-Reply when reply received"
-              />
-            </Grid>
-
-            {emailData.autoReply.enabled && (
-              <>
-                <Grid item xs={12}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={emailData.autoReply.useAI}
-                        onChange={(e) => handleNestedChange('autoReply', 'useAI', e.target.checked)}
-                      />
-                    }
-                    label="Use AI-generated responses"
-                  />
-                </Grid>
-                {!emailData.autoReply.useAI && (
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      multiline
-                      rows={3}
-                      label="Auto-Reply Message"
-                      value={emailData.autoReply.message}
-                      onChange={(e) => handleNestedChange('autoReply', 'message', e.target.value)}
-                      placeholder="Thank you for your reply..."
-                    />
-                  </Grid>
-                )}
-              </>
-            )}
-
-            {/* Personalization Variables */}
-            <Grid item xs={12}>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="h6" gutterBottom>
-                Personalization Variables
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Add custom variables to personalize your emails. Use {{variableName}} in your email content.
-              </Typography>
-            </Grid>
-
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                label="Recipient Name Variable"
-                placeholder="recipientName"
-                value={emailData.personalization.recipientName || ''}
-                onChange={(e) => handleInputChange('personalization', {
-                  ...emailData.personalization,
-                  recipientName: e.target.value
-                })}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                label="Company Name Variable"
-                placeholder="companyName"
-                value={emailData.personalization.companyName || ''}
-                onChange={(e) => handleInputChange('personalization', {
-                  ...emailData.personalization,
-                  companyName: e.target.value
-                })}
-              />
-            </Grid>
-
-            {/* Action Buttons */}
-            <Grid item xs={12}>
-              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 3 }}>
-                <Button variant="outlined" onClick={onCancel}>
-                  Cancel
-                </Button>
-                <Button variant="outlined" onClick={handlePreview}>
-                  Preview
-                </Button>
-                <Button 
-                  variant="contained" 
-                  onClick={handleSchedule}
-                  sx={{ backgroundColor: '#4CAF50' }}
-                >
-                  Schedule Email
-                </Button>
-              </Box>
-            </Grid>
+          {/* Personalization Variables */}
+          <Grid item xs={12}>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              Personalization Variables
+            </Typography>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Add custom variables to personalize your emails. Use {{variableName}} in your email content.
+            </Typography>
           </Grid>
-        </CardContent>
-      </Card>
+
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="Recipient Name Variable"
+              placeholder="recipientName"
+              value={emailData.personalization.recipientName || ''}
+              onChange={(e) => handleInputChange('personalization', {
+                ...emailData.personalization,
+                recipientName: e.target.value
+              })}
+            />
+          </Grid>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="Company Name Variable"
+              placeholder="companyName"
+              value={emailData.personalization.companyName || ''}
+              onChange={(e) => handleInputChange('personalization', {
+                ...emailData.personalization,
+                companyName: e.target.value
+              })}
+            />
+          </Grid>
+
+          {/* Action Buttons */}
+          <Grid item xs={12}>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 3 }}>
+              <Button variant="outlined" onClick={onCancel}>
+                Cancel
+              </Button>
+              <Button variant="outlined" onClick={handlePreview}>
+                Preview
+              </Button>
+              <Button 
+                variant="contained" 
+                onClick={handleSchedule}
+                sx={{ backgroundColor: '#4CAF50' }}
+              >
+                Schedule Email
+              </Button>
+            </Box>
+          </Grid>
+        </Grid>
+      </CardContent>
 
       {/* Preview Dialog */}
       <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} maxWidth="md" fullWidth>
@@ -477,7 +466,7 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
           <Button onClick={() => setPreviewOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
-    </LocalizationProvider>
+    </Card>
   );
 };
 

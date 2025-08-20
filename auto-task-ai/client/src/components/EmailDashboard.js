@@ -6,7 +6,6 @@ import {
   Typography,
   Grid,
   Button,
-  Chip,
   LinearProgress,
   Alert,
   Tabs,
@@ -14,7 +13,6 @@ import {
   Badge
 } from '@mui/material';
 import {
-  Email as EmailIcon,
   Schedule as ScheduleIcon,
   Send as SendIcon,
   Reply as ReplyIcon,
@@ -92,7 +90,7 @@ const EmailDashboard = () => {
               {value || 0}
             </Typography>
           </Box>
-          <Box sx={{ color: `${color}.main` }}>
+          <Box sx={{ color: `${color}.main`, fontSize: 40 }}>
             {icon}
           </Box>
         </Box>
@@ -181,27 +179,9 @@ const EmailDashboard = () => {
             onChange={(e, newValue) => setActiveTab(newValue)}
             sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
           >
-            <Tab 
-              label={
-                <Badge badgeContent={activity?.scheduled || 0} color="primary">
-                  Scheduled
-                </Badge>
-              } 
-            />
-            <Tab 
-              label={
-                <Badge badgeContent={activity?.sent || 0} color="success">
-                  Sent
-                </Badge>
-              } 
-            />
-            <Tab 
-              label={
-                <Badge badgeContent={activity?.followUpsPending || 0} color="warning">
-                  Follow-ups
-                </Badge>
-              } 
-            />
+            <Tab label="Scheduled" />
+            <Tab label="Sent" />
+            <Tab label="Follow-ups" />
           </Tabs>
 
           <Box>
