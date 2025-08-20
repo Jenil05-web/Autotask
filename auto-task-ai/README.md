@@ -123,6 +123,7 @@ npm run install-all
 
 ## 🔒 Environment Variables
 
+### Server Environment
 Create a `.env` file in the server directory:
 ```env
 PORT=5000
@@ -130,13 +131,29 @@ NODE_ENV=development
 # Add other environment variables as needed
 ```
 
+### Client Environment (Firebase)
+Create a `.env` file in the client directory (copy from `.env.example`):
+```env
+REACT_APP_FIREBASE_API_KEY=your_api_key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+REACT_APP_FIREBASE_APP_ID=your_app_id
+REACT_APP_FIREBASE_MEASUREMENT_ID=your_measurement_id
+```
+
+**📖 See [FIREBASE_SETUP.md](./FIREBASE_SETUP.md) for complete setup instructions.**
+
 ## 📊 Features
 
 - **AI-Powered Task Automation**: Intelligent task scheduling and execution
-- **User Authentication**: Secure login and registration system
+- **Firebase Authentication**: Secure email/password and Google sign-in
+- **User Management**: Complete user profiles with Firestore database
+- **Beautiful UI**: Modern, responsive authentication pages
 - **Real-time Dashboard**: Monitor task progress and performance
 - **Responsive Design**: Works on all devices
-- **Modern UI**: Beautiful, intuitive interface
+- **Modern UI**: Beautiful, intuitive interface with animations
 
 ## 🚧 Current Status
 
@@ -145,12 +162,15 @@ NODE_ENV=development
 - Empty Navbar component
 - Port conflicts resolved
 - Client compilation errors fixed
+- Authentication system implemented
 
 ✅ **Working:**
 - Express server running on port 5000
 - React client running on port 3000
 - Basic routing and navigation
-- Authentication context
+- Firebase Authentication (Email/Password + Google)
+- Beautiful, modern UI for auth pages
+- User management with Firestore
 
 ## 🤝 Contributing
 
