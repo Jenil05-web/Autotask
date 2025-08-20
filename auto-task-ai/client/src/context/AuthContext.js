@@ -10,7 +10,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
+import { auth, db, isFirebaseConfigured } from '../firebase/config';
 
 const AuthContext = createContext();
 
@@ -25,9 +25,16 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [configError, setConfigError] = useState(!isFirebaseConfigured);
 
   // Listen for auth state changes
   useEffect(() => {
+    if (!isFirebaseConfigured) {
+      setConfigError(true);
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         // Get additional user data from Firestore
@@ -69,6 +76,9 @@ export const AuthProvider = ({ children }) => {
 
   // Sign up with email and password
   const signup = async (email, password, displayName) => {
+    if (!isFirebaseConfigured) {
+      return { success: false, error: 'Firebase is not configured.' };
+    }
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
@@ -99,6 +109,9 @@ export const AuthProvider = ({ children }) => {
 
   // Sign in with email and password
   const login = async (email, password) => {
+    if (!isFirebaseConfigured) {
+      return { success: false, error: 'Firebase is not configured.' };
+    }
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       
@@ -121,6 +134,9 @@ export const AuthProvider = ({ children }) => {
 
   // Sign in with Google
   const signInWithGoogle = async () => {
+    if (!isFirebaseConfigured) {
+      return { success: false, error: 'Firebase is not configured.' };
+    }
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
@@ -158,6 +174,9 @@ export const AuthProvider = ({ children }) => {
 
   // Reset password
   const resetPassword = async (email) => {
+    if (!isFirebaseConfigured) {
+      return { success: false, error: 'Firebase is not configured.' };
+    }
     try {
       await sendPasswordResetEmail(auth, email);
       return { success: true };
@@ -172,6 +191,9 @@ export const AuthProvider = ({ children }) => {
 
   // Sign out
   const logout = async () => {
+    if (!isFirebaseConfigured) {
+      return { success: false, error: 'Firebase is not configured.' };
+    }
     try {
       await signOut(auth);
       return { success: true };
@@ -186,6 +208,9 @@ export const AuthProvider = ({ children }) => {
 
   // Update user profile
   const updateUserProfile = async (updates) => {
+    if (!isFirebaseConfigured) {
+      return { success: false, error: 'Firebase is not configured.' };
+    }
     try {
       if (auth.currentUser) {
         await updateProfile(auth.currentUser, updates);
@@ -241,7 +266,8 @@ export const AuthProvider = ({ children }) => {
     resetPassword,
     logout,
     updateUserProfile,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    configError
   };
 
   return (

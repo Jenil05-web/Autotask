@@ -30,7 +30,7 @@ import {
   Delete as DeleteIcon,
   Add as AddIcon,
   Dashboard as DashboardIcon,
-  Automation as AutomationIcon
+  SettingsSuggest as SettingsSuggestIcon
 } from '@mui/icons-material';
 import EmailAutomation from '../components/EmailAutomation';
 
@@ -145,7 +145,7 @@ function Dashboard() {
     switch (type) {
       case 'email': return <EmailIcon />;
       case 'backup': return <ScheduleIcon />;
-      default: return <AutomationIcon />;
+      default: return <SettingsSuggestIcon />;
     }
   };
 
@@ -229,7 +229,7 @@ function Dashboard() {
               iconPosition="start"
             />
             <Tab 
-              icon={<AutomationIcon />} 
+              icon={<SettingsSuggestIcon />} 
               label="Task Automation" 
               iconPosition="start"
             />
