@@ -28,6 +28,9 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Import routes
+const emailRoutes = require('./routes/emails');
+
 // Basic routes
 app.get('/', (req, res) => {
   res.json({ message: 'Auto Task AI Server is running!' });
@@ -41,6 +44,9 @@ app.get('/api/tasks', (req, res) => {
     ]
   });
 });
+
+// API routes
+app.use('/api/emails', emailRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
