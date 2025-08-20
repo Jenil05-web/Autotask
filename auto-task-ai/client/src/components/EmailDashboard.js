@@ -11,13 +11,7 @@ import {
   Tabs,
   Tab
 } from '@mui/material';
-import {
-  Schedule as ScheduleIcon,
-  Send as SendIcon,
-  Reply as ReplyIcon,
-  TrendingUp as TrendingUpIcon,
-  Add as AddIcon
-} from '@mui/icons-material';
+// Material-UI icons removed to avoid React rendering issues
 import EmailComposer from './EmailComposer';
 
 const EmailDashboard = () => {
@@ -76,7 +70,7 @@ const EmailDashboard = () => {
     }
   };
 
-  const ActivityCard = ({ title, value, icon, color = 'primary' }) => (
+  const ActivityCard = ({ title, value, color = 'primary' }) => (
     <Card sx={{ height: '100%' }}>
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -88,8 +82,12 @@ const EmailDashboard = () => {
               {value || 0}
             </Typography>
           </Box>
-          <Box sx={{ color: `${color}.main` }}>
-            {icon}
+          <Box sx={{ 
+            color: `${color}.main`, 
+            fontSize: '2rem',
+            fontWeight: 'bold'
+          }}>
+            📊
           </Box>
         </Box>
       </CardContent>
@@ -127,11 +125,10 @@ const EmailDashboard = () => {
         </Typography>
         <Button
           variant="contained"
-          startIcon={<AddIcon />}
           onClick={() => setShowComposer(true)}
           sx={{ backgroundColor: '#4CAF50' }}
         >
-          Schedule New Email
+          + Schedule New Email
         </Button>
       </Box>
 
@@ -140,7 +137,6 @@ const EmailDashboard = () => {
           <ActivityCard
             title="Scheduled"
             value={activity?.scheduled}
-            icon={<ScheduleIcon sx={{ fontSize: 40 }} />}
             color="primary"
           />
         </Grid>
@@ -148,7 +144,6 @@ const EmailDashboard = () => {
           <ActivityCard
             title="Sent"
             value={activity?.sent}
-            icon={<SendIcon sx={{ fontSize: 40 }} />}
             color="success"
           />
         </Grid>
@@ -156,7 +151,6 @@ const EmailDashboard = () => {
           <ActivityCard
             title="Follow-ups Pending"
             value={activity?.followUpsPending}
-            icon={<ReplyIcon sx={{ fontSize: 40 }} />}
             color="warning"
           />
         </Grid>
@@ -164,7 +158,6 @@ const EmailDashboard = () => {
           <ActivityCard
             title="Failed"
             value={activity?.failed}
-            icon={<TrendingUpIcon sx={{ fontSize: 40 }} />}
             color="error"
           />
         </Grid>

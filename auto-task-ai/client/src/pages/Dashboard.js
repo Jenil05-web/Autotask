@@ -11,9 +11,7 @@ import {
   Tab,
   Chip
 } from '@mui/material';
-import {
-  Add as AddIcon
-} from '@mui/icons-material';
+// Material-UI icons removed to avoid React rendering issues
 import EmailDashboard from '../components/EmailDashboard';
 
 function Dashboard() {
@@ -63,10 +61,9 @@ function Dashboard() {
                   <Typography variant="h5">Your Active Tasks</Typography>
                   <Button
                     variant="contained"
-                    startIcon={<AddIcon />}
                     sx={{ backgroundColor: '#4CAF50' }}
                   >
-                    Create New Task
+                    + Create New Task
                   </Button>
                 </Box>
                 
