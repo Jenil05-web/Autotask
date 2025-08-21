@@ -102,6 +102,62 @@
   border-color: rgba(255, 255, 255, 0.5);
 }
 
+/* Connection Status Styles */
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.connection-status.connected {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.connection-status.disconnected {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.connection-status.connected .status-dot {
+  background: #4caf50;
+}
+
+.connection-status.disconnected .status-dot {
+  background: #f44336;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.status-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .navbar-toggle {
   display: none;
   flex-direction: column;
@@ -142,6 +198,10 @@
 
   .navbar-container {
     padding: 1rem;
+  }
+
+  .connection-status {
+    display: none;
   }
 }
 

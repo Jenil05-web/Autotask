@@ -9,7 +9,7 @@ import {
   updateProfile,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, enableNetwork, disableNetwork } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
 
 const AuthContext = createContext();
@@ -25,6 +25,18 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [firestoreConnected, setFirestoreConnected] = useState(true);
+
+  // Test Firestore connection
+  const testFirestoreConnection = async () => {
+    try {
+      await enableNetwork(db);
+      setFirestoreConnected(true);
+    } catch (error) {
+      console.error('Firestore connection test failed:', error);
+      setFirestoreConnected(false);
+    }
+  };
 
   // Listen for auth state changes
   useEffect(() => {
@@ -32,6 +44,7 @@ export const AuthProvider = ({ children }) => {
       if (user) {
         // Get additional user data from Firestore
         try {
+          await testFirestoreConnection();
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
             setUser({
@@ -58,6 +71,7 @@ export const AuthProvider = ({ children }) => {
             displayName: user.displayName,
             photoURL: user.photoURL
           });
+          setFirestoreConnected(false);
         }
       } else {
         setUser(null);
@@ -76,21 +90,23 @@ export const AuthProvider = ({ children }) => {
       // Update profile with display name
       await updateProfile(result.user, { displayName });
       
-      // Create user document in Firestore (skip in demo mode)
-      try {
-        await setDoc(doc(db, 'users', result.user.uid), {
-          email,
-          displayName,
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-          preferences: {
-            theme: 'light',
-            notifications: true
-          }
-        });
-      } catch (error) {
-        console.error('Error creating user document:', error);
-        // Continue with signup even if Firestore write fails
+      // Create user document in Firestore
+      if (firestoreConnected) {
+        try {
+          await setDoc(doc(db, 'users', result.user.uid), {
+            email,
+            displayName,
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            preferences: {
+              theme: 'light',
+              notifications: true
+            }
+          });
+        } catch (error) {
+          console.error('Error creating user document:', error);
+          // Continue with signup even if Firestore write fails
+        }
       }
 
       return { success: true };
@@ -108,8 +124,8 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       
-      // Update last login time (skip in demo mode)
-      if (result.user) {
+      // Update last login time
+      if (result.user && firestoreConnected) {
         try {
           await setDoc(doc(db, 'users', result.user.uid), {
             lastLogin: new Date().toISOString()
@@ -136,25 +152,32 @@ export const AuthProvider = ({ children }) => {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       
-      // Check if user document exists, if not create one
-      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
-      if (!userDoc.exists()) {
-        await setDoc(doc(db, 'users', result.user.uid), {
-          email: result.user.email,
-          displayName: result.user.displayName,
-          photoURL: result.user.photoURL,
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-          preferences: {
-            theme: 'light',
-            notifications: true
+      if (firestoreConnected) {
+        try {
+          // Check if user document exists, if not create one
+          const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+          if (!userDoc.exists()) {
+            await setDoc(doc(db, 'users', result.user.uid), {
+              email: result.user.email,
+              displayName: result.user.displayName,
+              photoURL: result.user.photoURL,
+              createdAt: new Date().toISOString(),
+              lastLogin: new Date().toISOString(),
+              preferences: {
+                theme: 'light',
+                notifications: true
+              }
+            });
+          } else {
+            // Update last login time
+            await setDoc(doc(db, 'users', result.user.uid), {
+              lastLogin: new Date().toISOString()
+            }, { merge: true });
           }
-        });
-      } else {
-        // Update last login time
-        await setDoc(doc(db, 'users', result.user.uid), {
-          lastLogin: new Date().toISOString()
-        }, { merge: true });
+        } catch (error) {
+          console.error('Error handling Google sign-in Firestore operations:', error);
+          // Continue with sign-in even if Firestore operations fail
+        }
       }
 
       return { success: true };
@@ -201,8 +224,14 @@ export const AuthProvider = ({ children }) => {
       if (auth.currentUser) {
         await updateProfile(auth.currentUser, updates);
         
-        // Update Firestore document
-        await setDoc(doc(db, 'users', auth.currentUser.uid), updates, { merge: true });
+        // Update Firestore document if connected
+        if (firestoreConnected) {
+          try {
+            await setDoc(doc(db, 'users', auth.currentUser.uid), updates, { merge: true });
+          } catch (error) {
+            console.error('Error updating Firestore profile:', error);
+          }
+        }
         
         // Update local state
         setUser(prev => ({ ...prev, ...updates }));
@@ -238,6 +267,10 @@ export const AuthProvider = ({ children }) => {
         return 'Sign-in was cancelled. Please try again.';
       case 'auth/popup-blocked':
         return 'Pop-up was blocked. Please allow pop-ups and try again.';
+      case 'auth/network-request-failed':
+        return 'Network error. Please check your internet connection.';
+      case 'auth/operation-not-allowed':
+        return 'This sign-in method is not enabled. Please contact support.';
       default:
         return 'An error occurred. Please try again.';
     }
@@ -246,6 +279,7 @@ export const AuthProvider = ({ children }) => {
   const value = {
     user,
     loading,
+    firestoreConnected,
     signup,
     login,
     signInWithGoogle,
