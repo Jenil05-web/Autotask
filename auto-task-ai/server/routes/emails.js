@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const emailScheduler = require('../services/emailScheduler');
 const emailService = require('../services/emailService');
+const firebaseAdmin = require('../services/firebaseAdmin');
+const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const Joi = require('joi');
 
 // Validation schemas
@@ -34,18 +36,18 @@ const scheduleEmailSchema = Joi.object({
 });
 
 // Schedule a new email
-router.post('/schedule', async (req, res) => {
+router.post('/schedule', authenticateToken, async (req, res) => {
   try {
     const { error, value } = scheduleEmailSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    // Add user ID (from auth middleware when implemented)
+    // Add user information from authenticated request
     const emailData = {
       ...value,
-      userId: req.user?.id || 'demo-user', // Temporary for demo
-      createdBy: req.user?.email || 'demo@example.com'
+      userId: req.user.uid,
+      createdBy: req.user.email
     };
 
     const result = emailScheduler.scheduleEmail(emailData);
@@ -63,9 +65,9 @@ router.post('/schedule', async (req, res) => {
 });
 
 // Get all scheduled emails
-router.get('/scheduled', async (req, res) => {
+router.get('/scheduled', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user?.id || 'demo-user';
+    const userId = req.user.uid;
     const emails = emailScheduler.getScheduledEmails(userId);
     
     res.json({
@@ -88,7 +90,7 @@ router.get('/scheduled', async (req, res) => {
 });
 
 // Cancel a scheduled email
-router.delete('/scheduled/:emailId', async (req, res) => {
+router.delete('/scheduled/:emailId', authenticateToken, async (req, res) => {
   try {
     const { emailId } = req.params;
     const success = emailScheduler.cancelScheduledEmail(emailId);
@@ -105,7 +107,7 @@ router.delete('/scheduled/:emailId', async (req, res) => {
 });
 
 // Reschedule an email
-router.put('/scheduled/:emailId/reschedule', async (req, res) => {
+router.put('/scheduled/:emailId/reschedule', authenticateToken, async (req, res) => {
   try {
     const { emailId } = req.params;
     const { scheduledFor } = req.body;
@@ -128,7 +130,7 @@ router.put('/scheduled/:emailId/reschedule', async (req, res) => {
 });
 
 // Send a test email immediately
-router.post('/test', async (req, res) => {
+router.post('/test', authenticateToken, async (req, res) => {
   try {
     const { to, subject, body } = req.body;
     
@@ -150,9 +152,9 @@ router.post('/test', async (req, res) => {
 });
 
 // Get email activity/statistics
-router.get('/activity', async (req, res) => {
+router.get('/activity', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user?.id || 'demo-user';
+    const userId = req.user.uid;
     const activity = emailScheduler.getEmailActivity(userId);
     
     res.json({
@@ -166,7 +168,7 @@ router.get('/activity', async (req, res) => {
 });
 
 // Preview email with personalization
-router.post('/preview', async (req, res) => {
+router.post('/preview', optionalAuth, async (req, res) => {
   try {
     const { subject, body, personalization } = req.body;
     

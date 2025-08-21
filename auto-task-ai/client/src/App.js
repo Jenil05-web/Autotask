@@ -1,8 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { DemoAuthProvider, useDemoAuth } from './context/DemoAuthContext';
-import { APP_CONFIG } from './config/app';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -14,8 +12,7 @@ import './App.css';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
-  const authHook = APP_CONFIG.USE_DEMO_AUTH ? useDemoAuth : useAuth;
-  const { isAuthenticated, loading } = authHook();
+  const { isAuthenticated, loading } = useAuth();
   
   if (loading) {
     return <div className="loading">Loading...</div>;
@@ -26,8 +23,7 @@ const ProtectedRoute = ({ children }) => {
 
 // Public Route Component (redirect to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
-  const authHook = APP_CONFIG.USE_DEMO_AUTH ? useDemoAuth : useAuth;
-  const { isAuthenticated, loading } = authHook();
+  const { isAuthenticated, loading } = useAuth();
   
   if (loading) {
     return <div className="loading">Loading...</div>;
@@ -90,12 +86,10 @@ function AppContent() {
 }
 
 function App() {
-  const AuthProviderComponent = APP_CONFIG.USE_DEMO_AUTH ? DemoAuthProvider : AuthProvider;
-  
   return (
-    <AuthProviderComponent>
+    <AuthProvider>
       <AppContent />
-    </AuthProviderComponent>
+    </AuthProvider>
   );
 }
 

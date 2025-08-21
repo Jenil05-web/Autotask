@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogActions
 } from '@mui/material';
+import { emailAPI } from '../utils/api';
 
 const EmailComposer = ({ onSchedule, onCancel }) => {
   const [emailData, setEmailData] = useState({
@@ -112,17 +113,12 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
         ...emailData.personalization
       };
 
-      const response = await fetch('/api/emails/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: emailData.subject,
-          body: emailData.body,
-          personalization: samplePersonalization
-        })
+      const result = await emailAPI.previewEmail({
+        subject: emailData.subject,
+        body: emailData.body,
+        personalization: samplePersonalization
       });
 
-      const result = await response.json();
       if (result.success) {
         setPreviewData(result.preview);
         setPreviewOpen(true);

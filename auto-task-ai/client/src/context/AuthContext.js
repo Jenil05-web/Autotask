@@ -50,8 +50,8 @@ export const AuthProvider = ({ children }) => {
             });
           }
         } catch (error) {
-          console.log('Note: Running in offline mode or demo configuration');
-          // In demo/offline mode, just use basic user data
+          console.error('Error fetching user data:', error);
+          // If Firestore is unavailable, use basic user data
           setUser({
             uid: user.uid,
             email: user.email,
@@ -89,7 +89,8 @@ export const AuthProvider = ({ children }) => {
           }
         });
       } catch (error) {
-        console.log('Note: User data not saved in demo mode');
+        console.error('Error creating user document:', error);
+        // Continue with signup even if Firestore write fails
       }
 
       return { success: true };
@@ -114,7 +115,8 @@ export const AuthProvider = ({ children }) => {
             lastLogin: new Date().toISOString()
           }, { merge: true });
         } catch (error) {
-          console.log('Note: Login time not saved in demo mode');
+          console.error('Error updating login time:', error);
+          // Continue with login even if Firestore write fails
         }
       }
 

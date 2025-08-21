@@ -11,8 +11,8 @@ import {
   Tabs,
   Tab
 } from '@mui/material';
-// Material-UI icons removed to avoid React rendering issues
 import EmailComposer from './EmailComposer';
+import { emailAPI } from '../utils/api';
 
 const EmailDashboard = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -28,16 +28,10 @@ const EmailDashboard = () => {
 
   const fetchEmailActivity = async () => {
     try {
-      const response = await fetch('/api/emails/activity');
-      const result = await response.json();
-      
-      if (result.success) {
-        setActivity(result.activity);
-      } else {
-        setError('Failed to fetch email activity');
-      }
+      const result = await emailAPI.getActivity();
+      setActivity(result.activity);
     } catch (error) {
-      setError('Error fetching email activity');
+      setError('Error fetching email activity: ' + error.message);
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -47,23 +41,13 @@ const EmailDashboard = () => {
   const handleScheduleEmail = async (emailData) => {
     try {
       setLoading(true);
-      const response = await fetch('/api/emails/schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(emailData)
-      });
-
-      const result = await response.json();
+      const result = await emailAPI.scheduleEmail(emailData);
       
-      if (result.success) {
-        setSuccess('Email scheduled successfully!');
-        setShowComposer(false);
-        fetchEmailActivity();
-      } else {
-        setError(result.error || 'Failed to schedule email');
-      }
+      setSuccess('Email scheduled successfully!');
+      setShowComposer(false);
+      fetchEmailActivity();
     } catch (error) {
-      setError('Error scheduling email');
+      setError('Error scheduling email: ' + error.message);
       console.error('Error:', error);
     } finally {
       setLoading(false);

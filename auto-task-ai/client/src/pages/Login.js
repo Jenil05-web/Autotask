@@ -1,8 +1,6 @@
 // client/src/pages/Login.js
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useDemoAuth } from '../context/DemoAuthContext';
-import { APP_CONFIG } from '../config/app';
 import { useNavigate, Link } from 'react-router-dom';
 import './Auth.css';
 
@@ -13,8 +11,7 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   
-  const authHook = APP_CONFIG.USE_DEMO_AUTH ? useDemoAuth : useAuth;
-  const { login, signInWithGoogle } = authHook();
+  const { login, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   async function handleEmailLogin(e) {
