@@ -50,7 +50,8 @@ export const AuthProvider = ({ children }) => {
             });
           }
         } catch (error) {
-          console.error('Error fetching user data:', error);
+          console.log('Note: Running in offline mode or demo configuration');
+          // In demo/offline mode, just use basic user data
           setUser({
             uid: user.uid,
             email: user.email,
@@ -75,17 +76,21 @@ export const AuthProvider = ({ children }) => {
       // Update profile with display name
       await updateProfile(result.user, { displayName });
       
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', result.user.uid), {
-        email,
-        displayName,
-        createdAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString(),
-        preferences: {
-          theme: 'light',
-          notifications: true
-        }
-      });
+      // Create user document in Firestore (skip in demo mode)
+      try {
+        await setDoc(doc(db, 'users', result.user.uid), {
+          email,
+          displayName,
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+          preferences: {
+            theme: 'light',
+            notifications: true
+          }
+        });
+      } catch (error) {
+        console.log('Note: User data not saved in demo mode');
+      }
 
       return { success: true };
     } catch (error) {
@@ -102,11 +107,15 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       
-      // Update last login time
+      // Update last login time (skip in demo mode)
       if (result.user) {
-        await setDoc(doc(db, 'users', result.user.uid), {
-          lastLogin: new Date().toISOString()
-        }, { merge: true });
+        try {
+          await setDoc(doc(db, 'users', result.user.uid), {
+            lastLogin: new Date().toISOString()
+          }, { merge: true });
+        } catch (error) {
+          console.log('Note: Login time not saved in demo mode');
+        }
       }
 
       return { success: true };

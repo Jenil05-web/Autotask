@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useDemoAuth } from '../context/DemoAuthContext';
+import { APP_CONFIG } from '../config/app';
 import './Navbar.css';
 
 const Navbar = () => {
-  const { isAuthenticated, logout } = useAuth();
+  const authHook = APP_CONFIG.USE_DEMO_AUTH ? useDemoAuth : useAuth;
+  const { isAuthenticated, logout } = authHook();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 

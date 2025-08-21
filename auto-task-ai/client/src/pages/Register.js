@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useDemoAuth } from '../context/DemoAuthContext';
+import { APP_CONFIG } from '../config/app';
 import { useNavigate, Link } from 'react-router-dom';
 import './Auth.css';
 
@@ -12,7 +14,8 @@ function Register() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   
-  const { signup, signInWithGoogle } = useAuth();
+  const authHook = APP_CONFIG.USE_DEMO_AUTH ? useDemoAuth : useAuth;
+  const { signup, signInWithGoogle } = authHook();
   const navigate = useNavigate();
 
   async function handleEmailSignup(e) {

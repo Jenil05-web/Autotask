@@ -1,9 +1,12 @@
  // client/src/pages/Profile.js
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useDemoAuth } from '../context/DemoAuthContext';
+import { APP_CONFIG } from '../config/app';
 
 function Profile() {
-  const { currentUser, userProfile } = useAuth();
+  const authHook = APP_CONFIG.USE_DEMO_AUTH ? useDemoAuth : useAuth;
+  const { user: currentUser, userProfile } = authHook();
 
   return (
     <div className="container">
@@ -15,11 +18,11 @@ function Profile() {
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
         <div className="task-card" style={{ marginBottom: '20px' }}>
           <h3>Account Information</h3>
-          <p><strong>Name:</strong> {userProfile?.displayName || 'Not set'}</p>
+          <p><strong>Name:</strong> {userProfile?.displayName || currentUser?.displayName || 'Not set'}</p>
           <p><strong>Email:</strong> {currentUser?.email}</p>
-          <p><strong>Account Created:</strong> {userProfile?.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}</p>
+          <p><strong>Account Created:</strong> {userProfile?.createdAt?.toDate?.()?.toLocaleDateString() || 'Demo Account'}</p>
           <p><strong>Tasks Created:</strong> {userProfile?.tasksCount || 0}</p>
-          <p><strong>Subscription:</strong> {userProfile?.subscription || 'Free'}</p>
+          <p><strong>Subscription:</strong> {userProfile?.subscription || 'Demo'}</p>
         </div>
         
         <div className="task-card">
