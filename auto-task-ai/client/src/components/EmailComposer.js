@@ -216,7 +216,7 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
               value={emailData.body}
               onChange={(e) => handleInputChange('body', e.target.value)}
               error={!!errors.body}
-              helperText={errors.body || 'Use {{variableName}} for personalization'}
+              helperText={errors.body || 'Use \u007B\u007BvariableName\u007D\u007D for personalization'}
               required
             />
           </Grid>
@@ -387,7 +387,7 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
               Personalization Variables
             </Typography>
             <Typography variant="body2" color="text.secondary" gutterBottom>
-              Add custom variables to personalize your emails. Use {{variableName}} in your email content.
+              Add custom variables to personalize your emails. Use {'{{variableName}}'} in your email content.
             </Typography>
           </Grid>
 

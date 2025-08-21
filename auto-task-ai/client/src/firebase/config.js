@@ -1,7 +1,7 @@
- // client/src/firebase/config.js
+// client/src/firebase/config.js
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -14,12 +14,34 @@ const firebaseConfig = {
   measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
+// Warn in dev if any Firebase env vars are missing
+const missingKeys = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+if (missingKeys.length > 0 && typeof window !== 'undefined') {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[Firebase] Missing env vars: ${missingKeys.join(', ')}. ` +
+    'Create client/.env and restart the dev server (see FIREBASE_SETUP.md).'
+  );
+}
+
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase services
+// Auth with persistent session
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {
+  // Non-fatal if persistence cannot be set
+});
+
+// Firestore with long polling to avoid 400/offline issues in some networks
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+  useFetchStreams: false
+});
+
+// Storage
 export const storage = getStorage(app);
 
 export default app;
