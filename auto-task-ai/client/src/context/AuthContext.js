@@ -25,9 +25,31 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [firebaseConfigured, setFirebaseConfigured] = useState(false);
+
+  // Check if Firebase is properly configured
+  useEffect(() => {
+    const requiredEnvVars = [
+      'REACT_APP_FIREBASE_API_KEY',
+      'REACT_APP_FIREBASE_AUTH_DOMAIN',
+      'REACT_APP_FIREBASE_PROJECT_ID'
+    ];
+    
+    const configured = requiredEnvVars.every(envVar => process.env[envVar]);
+    setFirebaseConfigured(configured);
+    
+    if (!configured) {
+      // If Firebase is not configured, set loading to false immediately
+      setLoading(false);
+    }
+  }, []);
 
   // Listen for auth state changes
   useEffect(() => {
+    if (!firebaseConfigured) {
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         // Get additional user data from Firestore
@@ -66,10 +88,17 @@ export const AuthProvider = ({ children }) => {
     });
 
     return unsubscribe;
-  }, []);
+  }, [firebaseConfigured]);
 
   // Sign up with email and password
   const signup = async (email, password, displayName) => {
+    if (!firebaseConfigured) {
+      return {
+        success: false,
+        error: 'Firebase authentication is not configured. Please set up your Firebase credentials.'
+      };
+    }
+    
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
@@ -105,6 +134,13 @@ export const AuthProvider = ({ children }) => {
 
   // Sign in with email and password
   const login = async (email, password) => {
+    if (!firebaseConfigured) {
+      return {
+        success: false,
+        error: 'Firebase authentication is not configured. Please set up your Firebase credentials.'
+      };
+    }
+    
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       
@@ -252,7 +288,8 @@ export const AuthProvider = ({ children }) => {
     resetPassword,
     logout,
     updateUserProfile,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    firebaseConfigured
   };
 
   return (

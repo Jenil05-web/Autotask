@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
+import FirebaseSetupNotice from '../components/FirebaseSetupNotice';
 import './Auth.css';
 
 function Login() {
@@ -11,7 +12,7 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   
-  const { login, signInWithGoogle } = useAuth();
+  const { login, signInWithGoogle, firebaseConfigured } = useAuth();
   const navigate = useNavigate();
 
   async function handleEmailLogin(e) {
@@ -68,6 +69,8 @@ function Login() {
           <h2>Welcome Back</h2>
           <p>Sign in to continue managing your automated tasks</p>
         </div>
+
+        {!firebaseConfigured && <FirebaseSetupNotice />}
 
         {error && (
           <div className="error-message">
