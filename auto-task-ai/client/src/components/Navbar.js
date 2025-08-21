@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import './Navbar.css';
 
 const Navbar = () => {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, firestoreConnected } = useAuth();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -61,6 +61,16 @@ const Navbar = () => {
             </>
           )}
         </div>
+
+        {/* Connection Status Indicator */}
+        {isAuthenticated && (
+          <div className={`connection-status ${firestoreConnected ? 'connected' : 'disconnected'}`}>
+            <span className="status-dot"></span>
+            <span className="status-text">
+              {firestoreConnected ? 'Connected' : 'Offline'}
+            </span>
+          </div>
+        )}
 
         <div className="navbar-toggle" onClick={toggleMenu}>
           <span className="bar"></span>

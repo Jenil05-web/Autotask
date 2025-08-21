@@ -1,8 +1,8 @@
 // client/src/firebase/config.js
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 
 // Validate that all required environment variables are present
 const requiredEnvVars = [
@@ -33,11 +33,38 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+let app;
+try {
+  app = initializeApp(firebaseConfig);
+  console.log('Firebase initialized successfully');
+} catch (error) {
+  console.error('Error initializing Firebase:', error);
+  throw error;
+}
 
 // Initialize Firebase services
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+// Enable persistence for offline support
+import { enableNetwork, disableNetwork } from 'firebase/firestore';
+
+// Add error handling for Firestore operations
+export const enableFirestoreNetwork = () => enableNetwork(db);
+export const disableFirestoreNetwork = () => disableNetwork(db);
+
+// Add connection state monitoring
+import { onSnapshot } from 'firebase/firestore';
+
+export const monitorFirestoreConnection = (callback) => {
+  return onSnapshot(doc(db, '_health', 'connection'), 
+    () => callback(true), 
+    (error) => {
+      console.error('Firestore connection error:', error);
+      callback(false);
+    }
+  );
+};
 
 export default app;

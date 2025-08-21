@@ -1,10 +1,35 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { testFirebaseConnection, checkEnvironmentVariables } from '../utils/firebaseTest';
 import './Home.css';
 
 const Home = () => {
   const { isAuthenticated } = useAuth();
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    
+    try {
+      // Check environment variables first
+      const envCheck = checkEnvironmentVariables();
+      if (!envCheck) {
+        setTestResult({ success: false, error: 'Environment variables not properly configured' });
+        return;
+      }
+      
+      // Test Firebase connection
+      const result = await testFirebaseConnection();
+      setTestResult(result);
+    } catch (error) {
+      setTestResult({ success: false, error: error.message });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   return (
     <div className="home">
@@ -33,6 +58,25 @@ const Home = () => {
               <Link to="/dashboard" className="cta-button primary">
                 Go to Dashboard
               </Link>
+            )}
+          </div>
+
+          {/* Firebase Connection Test */}
+          <div className="firebase-test-section">
+            <button 
+              onClick={handleTestConnection}
+              disabled={testing}
+              className="test-button"
+            >
+              {testing ? 'Testing...' : 'Test Firebase Connection'}
+            </button>
+            
+            {testResult && (
+              <div className={`test-result ${testResult.success ? 'success' : 'error'}`}>
+                <strong>{testResult.success ? '✅ Success:' : '❌ Error:'}</strong>
+                <span>{testResult.message || testResult.error}</span>
+                {testResult.code && <span> (Code: {testResult.code})</span>}
+              </div>
             )}
           </div>
         </div>
