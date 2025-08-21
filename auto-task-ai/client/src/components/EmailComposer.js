@@ -204,17 +204,17 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
 
           {/* Body */}
           <Grid item xs={12}>
-            <TextField
-              fullWidth
-              multiline
-              rows={8}
-              label="Email Body"
-              value={emailData.body}
-              onChange={(e) => handleInputChange('body', e.target.value)}
-              error={!!errors.body}
-              helperText={errors.body || 'Use {{variableName}} for personalization'}
-              required
-            />
+           <TextField
+    fullWidth
+    multiline
+    rows={8}
+    label="Email Body"
+    value={emailData.body}
+    onChange={(e) => handleInputChange('body', e.target.value)}
+    error={!!errors.body}
+    helperText={errors.body || 'Use {variableName} for personalization'}
+    required
+/>
           </Grid>
 
           {/* Scheduling */}
