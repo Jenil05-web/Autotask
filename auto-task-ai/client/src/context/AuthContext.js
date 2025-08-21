@@ -25,80 +25,57 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [firebaseConfigured, setFirebaseConfigured] = useState(false);
-
-  // Check if Firebase is properly configured
-  useEffect(() => {
-    const requiredEnvVars = [
-      'REACT_APP_FIREBASE_API_KEY',
-      'REACT_APP_FIREBASE_AUTH_DOMAIN',
-      'REACT_APP_FIREBASE_PROJECT_ID'
-    ];
-    
-    const configured = requiredEnvVars.every(envVar => process.env[envVar]);
-    setFirebaseConfigured(configured);
-    
-    if (!configured) {
-      // If Firebase is not configured, set loading to false immediately
-      setLoading(false);
-    }
-  }, []);
+  const [userProfile, setUserProfile] = useState(null);
 
   // Listen for auth state changes
   useEffect(() => {
-    if (!firebaseConfigured) {
-      return;
-    }
-
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         // Get additional user data from Firestore
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists()) {
-            setUser({
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName,
-              photoURL: user.photoURL,
-              ...userDoc.data()
-            });
-          } else {
-            setUser({
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName,
-              photoURL: user.photoURL
-            });
-          }
-        } catch (error) {
-          console.error('Error fetching user data:', error);
-          // If Firestore is unavailable, use basic user data
-          setUser({
+          const userData = {
             uid: user.uid,
             email: user.email,
             displayName: user.displayName,
             photoURL: user.photoURL
-          });
+          };
+          
+          if (userDoc.exists()) {
+            const profileData = {
+              ...userData,
+              ...userDoc.data()
+            };
+            setUser(userData);
+            setUserProfile(profileData);
+          } else {
+            setUser(userData);
+            setUserProfile(userData);
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+          // If Firestore is unavailable, use basic user data
+          const userData = {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            photoURL: user.photoURL
+          };
+          setUser(userData);
+          setUserProfile(userData);
         }
       } else {
         setUser(null);
+        setUserProfile(null);
       }
       setLoading(false);
     });
 
     return unsubscribe;
-  }, [firebaseConfigured]);
+  }, []);
 
   // Sign up with email and password
   const signup = async (email, password, displayName) => {
-    if (!firebaseConfigured) {
-      return {
-        success: false,
-        error: 'Firebase authentication is not configured. Please set up your Firebase credentials.'
-      };
-    }
-    
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
@@ -134,13 +111,6 @@ export const AuthProvider = ({ children }) => {
 
   // Sign in with email and password
   const login = async (email, password) => {
-    if (!firebaseConfigured) {
-      return {
-        success: false,
-        error: 'Firebase authentication is not configured. Please set up your Firebase credentials.'
-      };
-    }
-    
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       
@@ -281,6 +251,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
+    userProfile,
     loading,
     signup,
     login,
@@ -288,8 +259,7 @@ export const AuthProvider = ({ children }) => {
     resetPassword,
     logout,
     updateUserProfile,
-    isAuthenticated: !!user,
-    firebaseConfigured
+    isAuthenticated: !!user
   };
 
   return (

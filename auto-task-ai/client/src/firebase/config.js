@@ -4,7 +4,7 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-// Check if Firebase environment variables are configured
+// Validate that all required environment variables are present
 const requiredEnvVars = [
   'REACT_APP_FIREBASE_API_KEY',
   'REACT_APP_FIREBASE_AUTH_DOMAIN',
@@ -17,23 +17,19 @@ const requiredEnvVars = [
 const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 
 if (missingEnvVars.length > 0) {
-  console.warn('⚠️  Firebase environment variables not configured:', missingEnvVars);
-  console.warn('🔧 To enable Firebase authentication, please:');
-  console.warn('1. Copy .env.example to .env');
-  console.warn('2. Fill in your Firebase project details');
-  console.warn('3. Restart the development server');
-  console.warn('📚 See FIREBASE_SETUP_INSTRUCTIONS.md for detailed setup');
+  console.error('Missing required Firebase environment variables:', missingEnvVars);
+  console.error('Please check your .env file and ensure all Firebase configuration is set up properly.');
+  console.error('See FIREBASE_SETUP_INSTRUCTIONS.md for detailed setup instructions.');
 }
 
-// Use demo/fallback configuration if environment variables are not set
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "demo-api-key",
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "demo-project.firebaseapp.com",
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "demo-project",
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "demo-project.appspot.com",
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "123456789",
-  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:123456789:web:demo-app-id",
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-DEMO-ID"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
