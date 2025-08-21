@@ -16,7 +16,8 @@
   "license": "ISC",
   "description": "Auto Task AI - Automate your daily tasks with AI",
   "devDependencies": {
-    "concurrently": "^9.2.0"
+    "concurrently": "^9.2.0",
+    "dotenv-cli": "^10.0.0"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

@@ -10,36 +10,25 @@ class FirebaseAdminService {
 
   initialize() {
     try {
-      // Initialize Firebase Admin SDK
-      if (!admin.apps.length) {
-        // In production, use service account key
-        if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-          this.app = admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-            projectId: process.env.FIREBASE_PROJECT_ID
-          });
-        } else if (process.env.NODE_ENV === 'development') {
-          // In development, use application default credentials or emulator
-          this.app = admin.initializeApp({
-            projectId: process.env.FIREBASE_PROJECT_ID || 'demo-project'
-          });
-        } else {
-          throw new Error('Firebase Admin credentials not configured');
-        }
-      } else {
+      // If the Admin SDK is already initialized, don't do it again.
+      if (admin.apps.length) {
         this.app = admin.app();
+      } else {
+        // The SDK will automatically find the Application Default Credentials
+        // that you set up with 'gcloud auth application-default login'.
+        // We only need to provide the Project ID from the .env file.
+        this.app = admin.initializeApp({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+        });
       }
 
       this.auth = admin.auth();
       this.firestore = admin.firestore();
       
-      console.log('🔥 Firebase Admin initialized successfully');
+      console.log('🔥 Firebase Admin initialized successfully using Application Default Credentials.');
     } catch (error) {
       console.error('Failed to initialize Firebase Admin:', error.message);
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Running in development mode without Firebase Admin');
-      }
+      console.error('Please ensure that the FIREBASE_PROJECT_ID is set correctly in your server/.env file.');
     }
   }
 
