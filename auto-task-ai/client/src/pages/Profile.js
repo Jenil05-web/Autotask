@@ -1,12 +1,9 @@
  // client/src/pages/Profile.js
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useDemoAuth } from '../context/DemoAuthContext';
-import { APP_CONFIG } from '../config/app';
 
 function Profile() {
-  const authHook = APP_CONFIG.USE_DEMO_AUTH ? useDemoAuth : useAuth;
-  const { user: currentUser, userProfile } = authHook();
+  const { user: currentUser, userProfile } = useAuth();
 
   return (
     <div className="container">

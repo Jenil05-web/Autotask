@@ -1,6 +1,6 @@
 // client/src/config/app.js
 export const APP_CONFIG = {
-  // Set to true to use demo authentication, false to use Firebase auth
+  // Always use real Firebase authentication
   USE_DEMO_AUTH: false,
   
   // App metadata
