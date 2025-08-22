@@ -205,16 +205,16 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
           {/* Body */}
           <Grid item xs={12}>
            <TextField
-    fullWidth
-    multiline
-    rows={8}
-    label="Email Body"
-    value={emailData.body}
-    onChange={(e) => handleInputChange('body', e.target.value)}
-    error={!!errors.body}
-    helperText={errors.body || 'Use {variableName} for personalization'}
-    required
-/>
+              fullWidth
+              multiline
+              rows={8}
+              label="Email Body"
+              value={emailData.body}
+              onChange={(e) => handleInputChange('body', e.target.value)}
+              error={!!errors.body}
+              helperText={errors.body || 'Use {variableName} for personalization'}
+              required
+            />
           </Grid>
 
           {/* Scheduling */}
@@ -382,8 +382,9 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
             <Typography variant="h6" gutterBottom>
               Personalization Variables
             </Typography>
+            {/* THIS IS THE CORRECTED LINE */}
             <Typography variant="body2" color="text.secondary" gutterBottom>
-              Add custom variables to personalize your emails. Use {{variableName}} in your email content.
+              Add custom variables to personalize your emails. Use {'{variableName}'} in your email content.
             </Typography>
           </Grid>
 

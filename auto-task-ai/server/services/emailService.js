@@ -1,110 +1,63 @@
 const nodemailer = require('nodemailer');
-const { v4: uuidv4 } = require('uuid');
+const { google } = require('googleapis');
+const admin = require('./firebaseAdmin');
 
-class EmailService {
-  constructor() {
-    this.transporter = null;
-    this.initializeTransporter();
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+// This function dynamically creates a transporter for a specific user
+const createTransporter = async (userId) => {
+  const userDoc = await admin.firestore.collection('users').doc(userId).get();
+  const user_refresh_token = userDoc.data().googleRefreshToken;
+
+  if (!user_refresh_token) {
+    throw new Error('User has not connected their Google account.');
   }
 
-  initializeTransporter() {
-    // Configure based on environment variables
-    if (process.env.EMAIL_SERVICE === 'gmail') {
-      this.transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_APP_PASSWORD // App-specific password
-        }
-      });
-    } else if (process.env.SMTP_HOST) {
-      this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT || 587,
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASSWORD
-        }
-      });
-    } else {
-      // Development mode - use Ethereal for testing
-      this.createTestAccount();
+  oauth2Client.setCredentials({
+    refresh_token: user_refresh_token
+  });
+
+  const accessToken = await oauth2Client.getAccessToken();
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      type: 'OAuth2',
+      user: 'me', // 'me' refers to the authenticated user
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      refreshToken: user_refresh_token,
+      accessToken: accessToken.token
     }
+  });
+
+  return transporter;
+};
+
+const sendEmail = async ({ userId, from, to, cc, bcc, subject, html }) => {
+  const transporter = await createTransporter(userId);
+
+  const mailOptions = {
+    from: from,
+    to: to.join(', '),
+    cc: cc ? cc.join(', ') : undefined,
+    bcc: bcc ? bcc.join(', ') : undefined,
+    subject: subject,
+    html: html
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully using user credentials:', info.response);
+    return info;
+  } catch (error) {
+    console.error('Error sending email with OAuth2:', error);
+    throw error;
   }
+};
 
-  async createTestAccount() {
-    try {
-      const testAccount = await nodemailer.createTestAccount();
-      this.transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass
-        }
-      });
-      console.log('📧 Test email account created:', testAccount.user);
-    } catch (error) {
-      console.error('Failed to create test email account:', error);
-    }
-  }
-
-  async sendEmail(emailData) {
-    try {
-      const mailOptions = {
-        from: emailData.from || process.env.EMAIL_USER,
-        to: emailData.to,
-        cc: emailData.cc,
-        bcc: emailData.bcc,
-        subject: emailData.subject,
-        text: emailData.text,
-        html: emailData.html,
-        attachments: emailData.attachments
-      };
-
-      const result = await this.transporter.sendMail(mailOptions);
-      
-      // Log preview URL for development
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('📧 Email sent! Preview URL:', nodemailer.getTestMessageUrl(result));
-      }
-
-      return {
-        success: true,
-        messageId: result.messageId,
-        previewUrl: nodemailer.getTestMessageUrl(result)
-      };
-    } catch (error) {
-      console.error('Email sending failed:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  personalizeEmail(template, variables) {
-    let personalizedContent = template;
-    
-    // Replace variables in format {{variableName}}
-    Object.keys(variables).forEach(key => {
-      const regex = new RegExp(`{{${key}}}`, 'g');
-      personalizedContent = personalizedContent.replace(regex, variables[key]);
-    });
-
-    return personalizedContent;
-  }
-
-  async verifyConnection() {
-    try {
-      await this.transporter.verify();
-      return { success: true, message: 'Email service connected successfully' };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-}
-
-module.exports = new EmailService();
+module.exports = { sendEmail };

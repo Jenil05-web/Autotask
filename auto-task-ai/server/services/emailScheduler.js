@@ -1,245 +1,75 @@
 const cron = require('node-cron');
-const emailService = require('./emailService');
-const { v4: uuidv4 } = require('uuid');
+const admin = require('./firebaseAdmin');
+const { sendEmail } = require('./emailService'); // The OAuth-enabled email service
 
-class EmailScheduler {
-  constructor() {
-    this.scheduledEmails = new Map(); // In-memory storage, replace with database
-    this.cronJobs = new Map();
-    this.followUpTracking = new Map();
-    this.initializeScheduler();
-  }
+/**
+ * Schedules a new email task by saving it to Firestore and creating a cron job.
+ * @param {string} userId - The Firebase UID of the user scheduling the email.
+ * @param {object} emailData - The email data from the frontend.
+ * @returns {object} - The newly created task data.
+ */
+const scheduleNewEmail = async (userId, emailData) => {
+  const firestore = admin.firestore;
+  
+  // 1. Save the email task to a user-specific subcollection in Firestore
+  const newEmailRef = await firestore.collection('users').doc(userId).collection('scheduledEmails').add({
+    ...emailData,
+    status: 'scheduled',
+    userId: userId, // Store the owner of the task
+    createdAt: new Date().toISOString()
+  });
 
-  initializeScheduler() {
-    // Check for scheduled emails every minute
-    cron.schedule('* * * * *', () => {
-      this.processScheduledEmails();
-    });
+  const taskId = newEmailRef.id;
+  console.log(`Email task ${taskId} for user ${userId} saved to Firestore.`);
 
-    // Check for follow-ups every hour
-    cron.schedule('0 * * * *', () => {
-      this.processFollowUps();
-    });
+  // 2. Schedule the one-time email send using node-cron
+  const scheduledDate = new Date(emailData.scheduledFor);
+  
+  // This cron job will run only once at the specified time and then destroy itself.
+  const cronTime = `${scheduledDate.getMinutes()} ${scheduledDate.getHours()} ${scheduledDate.getDate()} ${scheduledDate.getMonth() + 1} *`;
 
-    console.log('📅 Email scheduler initialized');
-  }
-
-  scheduleEmail(emailData) {
-    const emailId = uuidv4();
-    const scheduledEmail = {
-      id: emailId,
-      ...emailData,
-      status: 'scheduled',
-      createdAt: new Date(),
-      scheduledFor: new Date(emailData.scheduledFor)
-    };
-
-    this.scheduledEmails.set(emailId, scheduledEmail);
-
-    // If it's a recurring email, set up cron job
-    if (emailData.recurring) {
-      this.setupRecurringEmail(emailId, emailData);
-    }
-
-    return { emailId, scheduledEmail };
-  }
-
-  setupRecurringEmail(emailId, emailData) {
-    let cronPattern;
+  const task = cron.schedule(cronTime, async () => {
+    console.log(`Executing scheduled email task ${taskId} for user ${userId}`);
     
-    switch (emailData.recurring.type) {
-      case 'daily':
-        cronPattern = `${emailData.recurring.minute || 0} ${emailData.recurring.hour || 9} * * *`;
-        break;
-      case 'weekly':
-        cronPattern = `${emailData.recurring.minute || 0} ${emailData.recurring.hour || 9} * * ${emailData.recurring.dayOfWeek || 1}`;
-        break;
-      case 'monthly':
-        cronPattern = `${emailData.recurring.minute || 0} ${emailData.recurring.hour || 9} ${emailData.recurring.dayOfMonth || 1} * *`;
-        break;
-      case 'custom':
-        cronPattern = emailData.recurring.cronPattern;
-        break;
-      default:
-        return;
-    }
-
-    const job = cron.schedule(cronPattern, async () => {
-      await this.sendScheduledEmail(emailId);
-    }, { scheduled: false });
-
-    this.cronJobs.set(emailId, job);
-    job.start();
-  }
-
-  async processScheduledEmails() {
-    const now = new Date();
-    
-    for (const [emailId, email] of this.scheduledEmails.entries()) {
-      if (email.status === 'scheduled' && email.scheduledFor <= now && !email.recurring) {
-        await this.sendScheduledEmail(emailId);
-      }
-    }
-  }
-
-  async sendScheduledEmail(emailId) {
-    const email = this.scheduledEmails.get(emailId);
-    if (!email) return;
-
     try {
-      // Personalize email content
-      const personalizedSubject = emailService.personalizeEmail(
-        email.subject, 
-        email.personalization || {}
-      );
-      const personalizedBody = emailService.personalizeEmail(
-        email.body, 
-        email.personalization || {}
-      );
+      // Send the email using the user's OAuth credentials
+      await sendEmail({
+        userId: userId, // Pass the user's ID to the email service
+        from: emailData.from,
+        to: emailData.recipients,
+        cc: emailData.cc,
+        bcc: emailData.bcc,
+        subject: emailData.subject,
+        html: emailData.body
+      });
+      
+      // Update the status in Firestore to 'sent'
+      await newEmailRef.update({ status: 'sent', sentAt: new Date().toISOString() });
+      console.log(`✅ Email task ${taskId} completed and status updated.`);
 
-      const emailData = {
-        to: email.recipients,
-        cc: email.cc,
-        bcc: email.bcc,
-        subject: personalizedSubject,
-        html: personalizedBody,
-        attachments: email.attachments
-      };
-
-      const result = await emailService.sendEmail(emailData);
-
-      if (result.success) {
-        email.status = 'sent';
-        email.sentAt = new Date();
-        email.messageId = result.messageId;
-
-        // Set up follow-up tracking if enabled
-        if (email.followUp && email.followUp.enabled) {
-          this.trackForFollowUp(emailId, email);
-        }
-
-        console.log(`📧 Scheduled email ${emailId} sent successfully`);
-      } else {
-        email.status = 'failed';
-        email.error = result.error;
-        console.error(`❌ Failed to send scheduled email ${emailId}:`, result.error);
-      }
     } catch (error) {
-      email.status = 'failed';
-      email.error = error.message;
-      console.error(`❌ Error sending scheduled email ${emailId}:`, error);
+      // If sending fails, update the status in Firestore
+      await newEmailRef.update({ status: 'failed', error: error.message });
+      console.error(`❌ Email task ${taskId} failed:`, error);
+    } finally {
+        // Stop the cron job after it has run
+        task.stop();
     }
-  }
+  }, {
+    scheduled: true,
+    timezone: "Asia/Kolkata" // It's good practice to set a consistent timezone
+  });
 
-  trackForFollowUp(emailId, email) {
-    const followUpId = uuidv4();
-    const followUpDate = new Date();
-    followUpDate.setDate(followUpDate.getDate() + (email.followUp.daysAfter || 3));
+  console.log(`📅 Job scheduled for task ${taskId} at ${scheduledDate.toLocaleString()}`);
+  
+  return { id: taskId, ...emailData };
+};
 
-    this.followUpTracking.set(followUpId, {
-      id: followUpId,
-      originalEmailId: emailId,
-      recipients: email.recipients,
-      followUpDate,
-      followUpMessage: email.followUp.message,
-      status: 'pending'
-    });
-  }
 
-  async processFollowUps() {
-    const now = new Date();
-    
-    for (const [followUpId, followUp] of this.followUpTracking.entries()) {
-      if (followUp.status === 'pending' && followUp.followUpDate <= now) {
-        // Check if reply was received (this would need email integration)
-        const replyReceived = await this.checkForReply(followUp.originalEmailId);
-        
-        if (!replyReceived) {
-          await this.sendFollowUpEmail(followUpId);
-        } else {
-          followUp.status = 'reply_received';
-        }
-      }
-    }
-  }
+// Note: The logic for recurring emails and follow-ups would be built here.
+// It would involve creating more complex cron jobs that re-schedule themselves
+// and creating separate documents in Firestore for follow-up tasks.
+// The current implementation focuses on the core one-time scheduling.
 
-  async checkForReply(originalEmailId) {
-    // This would require email inbox integration
-    // For now, return false (no reply detected)
-    return false;
-  }
 
-  async sendFollowUpEmail(followUpId) {
-    const followUp = this.followUpTracking.get(followUpId);
-    if (!followUp) return;
-
-    try {
-      const emailData = {
-        to: followUp.recipients,
-        subject: 'Following up on my previous email',
-        html: followUp.followUpMessage || 'Just checking in on my previous email. Looking forward to hearing from you!'
-      };
-
-      const result = await emailService.sendEmail(emailData);
-      
-      if (result.success) {
-        followUp.status = 'sent';
-        followUp.sentAt = new Date();
-        console.log(`📧 Follow-up email ${followUpId} sent successfully`);
-      } else {
-        followUp.status = 'failed';
-        followUp.error = result.error;
-      }
-    } catch (error) {
-      followUp.status = 'failed';
-      followUp.error = error.message;
-      console.error(`❌ Error sending follow-up email ${followUpId}:`, error);
-    }
-  }
-
-  cancelScheduledEmail(emailId) {
-    const email = this.scheduledEmails.get(emailId);
-    if (email && email.status === 'scheduled') {
-      email.status = 'cancelled';
-      
-      // Stop recurring job if exists
-      const cronJob = this.cronJobs.get(emailId);
-      if (cronJob) {
-        cronJob.stop();
-        this.cronJobs.delete(emailId);
-      }
-      
-      return true;
-    }
-    return false;
-  }
-
-  rescheduleEmail(emailId, newScheduleTime) {
-    const email = this.scheduledEmails.get(emailId);
-    if (email && email.status === 'scheduled') {
-      email.scheduledFor = new Date(newScheduleTime);
-      return true;
-    }
-    return false;
-  }
-
-  getScheduledEmails(userId) {
-    // Filter by userId when database is implemented
-    return Array.from(this.scheduledEmails.values());
-  }
-
-  getEmailActivity(userId) {
-    const emails = this.getScheduledEmails(userId);
-    const followUps = Array.from(this.followUpTracking.values());
-    
-    return {
-      scheduled: emails.filter(e => e.status === 'scheduled').length,
-      sent: emails.filter(e => e.status === 'sent').length,
-      failed: emails.filter(e => e.status === 'failed').length,
-      followUpsPending: followUps.filter(f => f.status === 'pending').length,
-      followUpsSent: followUps.filter(f => f.status === 'sent').length
-    };
-  }
-}
-
-module.exports = new EmailScheduler();
+module.exports = { scheduleNewEmail };
