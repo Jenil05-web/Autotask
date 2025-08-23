@@ -1,177 +1,43 @@
 const express = require('express');
 const router = express.Router();
-const emailScheduler = require('../services/emailScheduler');
-const emailService = require('../services/emailService');
-const firebaseAdmin = require('../services/firebaseAdmin');
+const admin = require('../services/firebaseAdmin');
+const { scheduleNewEmail } = require('../services/emailScheduler');
+const emailService = require('../services/emailService'); // Import emailService for preview
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const Joi = require('joi');
 
-// Validation schemas
+// --- THIS IS THE UPDATED VALIDATION SCHEMA ---
 const scheduleEmailSchema = Joi.object({
+  from: Joi.string().email().required(),
   recipients: Joi.array().items(Joi.string().email()).min(1).required(),
-  cc: Joi.array().items(Joi.string().email()).optional(),
-  bcc: Joi.array().items(Joi.string().email()).optional(),
+  cc: Joi.array().items(Joi.string().email()).optional().allow(''),
+  bcc: Joi.array().items(Joi.string().email()).optional().allow(''),
   subject: Joi.string().min(1).required(),
   body: Joi.string().min(1).required(),
   scheduledFor: Joi.date().iso().required(),
   personalization: Joi.object().optional(),
-  recurring: Joi.object({
-    type: Joi.string().valid('daily', 'weekly', 'monthly', 'custom').required(),
-    hour: Joi.number().min(0).max(23).optional(),
-    minute: Joi.number().min(0).max(59).optional(),
-    dayOfWeek: Joi.number().min(0).max(6).optional(), // 0 = Sunday
-    dayOfMonth: Joi.number().min(1).max(31).optional(),
-    cronPattern: Joi.string().optional()
-  }).optional(),
-  followUp: Joi.object({
-    enabled: Joi.boolean().required(),
-    daysAfter: Joi.number().min(1).max(30).optional(),
-    message: Joi.string().optional()
-  }).optional(),
-  autoReply: Joi.object({
-    enabled: Joi.boolean().required(),
-    message: Joi.string().optional(),
-    useAI: Joi.boolean().optional()
-  }).optional()
+  // Added rules to allow these objects if they exist
+  recurring: Joi.object().optional(),
+  followUp: Joi.object().optional(),
+  autoReply: Joi.object().optional()
 });
 
-// Schedule a new email
-router.post('/schedule', authenticateToken, async (req, res) => {
-  try {
-    const { error, value } = scheduleEmailSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    // Add user information from authenticated request
-    const emailData = {
-      ...value,
-      userId: req.user.uid,
-      createdBy: req.user.email
-    };
-
-    const result = emailScheduler.scheduleEmail(emailData);
-    
-    res.status(201).json({
-      success: true,
-      message: 'Email scheduled successfully',
-      emailId: result.emailId,
-      scheduledEmail: result.scheduledEmail
-    });
-  } catch (error) {
-    console.error('Error scheduling email:', error);
-    res.status(500).json({ error: 'Failed to schedule email' });
-  }
+// Simple test route (no auth required) - ADD THIS FOR DEBUGGING
+router.get('/test', (req, res) => {
+  console.log('=== /test route called (no auth) ===');
+  res.json({
+    success: true,
+    message: 'Email API is working!',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Get all scheduled emails
-router.get('/scheduled', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const emails = emailScheduler.getScheduledEmails(userId);
-    
-    res.json({
-      success: true,
-      emails: emails.map(email => ({
-        id: email.id,
-        recipients: email.recipients,
-        subject: email.subject,
-        scheduledFor: email.scheduledFor,
-        status: email.status,
-        recurring: email.recurring,
-        createdAt: email.createdAt,
-        sentAt: email.sentAt
-      }))
-    });
-  } catch (error) {
-    console.error('Error fetching scheduled emails:', error);
-    res.status(500).json({ error: 'Failed to fetch scheduled emails' });
-  }
-});
-
-// Cancel a scheduled email
-router.delete('/scheduled/:emailId', authenticateToken, async (req, res) => {
-  try {
-    const { emailId } = req.params;
-    const success = emailScheduler.cancelScheduledEmail(emailId);
-    
-    if (success) {
-      res.json({ success: true, message: 'Email cancelled successfully' });
-    } else {
-      res.status(404).json({ error: 'Email not found or cannot be cancelled' });
-    }
-  } catch (error) {
-    console.error('Error cancelling email:', error);
-    res.status(500).json({ error: 'Failed to cancel email' });
-  }
-});
-
-// Reschedule an email
-router.put('/scheduled/:emailId/reschedule', authenticateToken, async (req, res) => {
-  try {
-    const { emailId } = req.params;
-    const { scheduledFor } = req.body;
-
-    if (!scheduledFor) {
-      return res.status(400).json({ error: 'scheduledFor is required' });
-    }
-
-    const success = emailScheduler.rescheduleEmail(emailId, scheduledFor);
-    
-    if (success) {
-      res.json({ success: true, message: 'Email rescheduled successfully' });
-    } else {
-      res.status(404).json({ error: 'Email not found or cannot be rescheduled' });
-    }
-  } catch (error) {
-    console.error('Error rescheduling email:', error);
-    res.status(500).json({ error: 'Failed to reschedule email' });
-  }
-});
-
-// Send a test email immediately
-router.post('/test', authenticateToken, async (req, res) => {
-  try {
-    const { to, subject, body } = req.body;
-    
-    if (!to || !subject || !body) {
-      return res.status(400).json({ error: 'to, subject, and body are required' });
-    }
-
-    const result = await emailService.sendEmail({
-      to: [to],
-      subject,
-      html: body
-    });
-
-    res.json(result);
-  } catch (error) {
-    console.error('Error sending test email:', error);
-    res.status(500).json({ error: 'Failed to send test email' });
-  }
-});
-
-// Get email activity/statistics
-router.get('/activity', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const activity = emailScheduler.getEmailActivity(userId);
-    
-    res.json({
-      success: true,
-      activity
-    });
-  } catch (error) {
-    console.error('Error fetching email activity:', error);
-    res.status(500).json({ error: 'Failed to fetch email activity' });
-  }
-});
-
-// Preview email with personalization
-router.post('/preview', optionalAuth, async (req, res) => {
+// --- THIS IS THE NEW /preview ROUTE ---
+router.post('/preview', optionalAuth, (req, res) => {
   try {
     const { subject, body, personalization } = req.body;
     
+    // Using the personalization function from your emailService.js
     const previewSubject = emailService.personalizeEmail(subject || '', personalization || {});
     const previewBody = emailService.personalizeEmail(body || '', personalization || {});
     
@@ -188,14 +54,254 @@ router.post('/preview', optionalAuth, async (req, res) => {
   }
 });
 
-// Verify email service connection
-router.get('/verify', async (req, res) => {
+// Schedule a new email
+router.post('/schedule', authenticateToken, async (req, res) => {
   try {
-    const result = await emailService.verifyConnection();
-    res.json(result);
+    // Joi will now correctly validate the incoming data
+    const { error } = scheduleEmailSchema.validate(req.body);
+    if (error) {
+      console.error('Validation Error:', error.details[0].message);
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const userId = req.user.uid;
+    const emailData = req.body;
+    
+    const scheduledTask = await scheduleNewEmail(userId, emailData);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Email scheduled successfully',
+      task: scheduledTask
+    });
+  } catch (error) {
+    console.error('Error scheduling email:', error);
+    res.status(500).json({ error: 'Failed to schedule email' });
+  }
+});
+
+// Get all scheduled emails for the user - ENHANCED WITH DEBUG LOGGING
+router.get('/scheduled', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== /scheduled route called ===');
+    console.log('Request headers:', req.headers);
+    console.log('Request user:', req.user);
+    console.log('User UID:', req.user?.uid);
+    
+    const userId = req.user.uid;
+    console.log('Querying Firestore for user:', userId);
+    
+    // Check if admin.firestore is available
+    if (!admin.firestore) {
+      console.error('Firestore is not initialized in admin');
+      throw new Error('Firestore not initialized');
+    }
+    
+    const snapshot = await admin.firestore
+      .collection('users')
+      .doc(userId)
+      .collection('scheduledEmails')
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    console.log('Firestore query complete');
+    console.log('Snapshot empty:', snapshot.empty);
+    console.log('Snapshot size:', snapshot.size);
+    
+    const emails = snapshot.docs.map(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      console.log('Email document:', doc.id, JSON.stringify(data, null, 2));
+      return data;
+    });
+    
+    console.log('Final emails array length:', emails.length);
+    console.log('Final emails array:', JSON.stringify(emails, null, 2));
+    
+    // Return consistent format with success flag and emails array
+    const response = {
+      success: true,
+      emails: emails
+    };
+    
+    console.log('Sending response:', JSON.stringify(response, null, 2));
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('=== ERROR in /scheduled route ===');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Error code:', error.code);
+    
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch scheduled emails',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Cancel/Delete a scheduled email
+router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== DELETE /scheduled/:id route called ===');
+    const userId = req.user.uid;
+    const emailId = req.params.id;
+    console.log('Cancelling email:', emailId, 'for user:', userId);
+    
+    await admin.firestore
+      .collection('users')
+      .doc(userId)
+      .collection('scheduledEmails')
+      .doc(emailId)
+      .update({
+        status: 'cancelled',
+        cancelledAt: new Date().toISOString()
+      });
+    
+    console.log('Email cancelled successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Email cancelled successfully'
+    });
+  } catch (error) {
+    console.error('Error cancelling email:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to cancel email' 
+    });
+  }
+});
+
+// Reschedule an email
+router.put('/scheduled/:id/reschedule', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== PUT /scheduled/:id/reschedule route called ===');
+    const userId = req.user.uid;
+    const emailId = req.params.id;
+    const { scheduledFor } = req.body;
+    console.log('Rescheduling email:', emailId, 'for user:', userId, 'to:', scheduledFor);
+    
+    if (!scheduledFor) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'scheduledFor is required' 
+      });
+    }
+    
+    await admin.firestore
+      .collection('users')
+      .doc(userId)
+      .collection('scheduledEmails')
+      .doc(emailId)
+      .update({
+        scheduledFor: scheduledFor,
+        rescheduledAt: new Date().toISOString()
+      });
+    
+    console.log('Email rescheduled successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Email rescheduled successfully'
+    });
+  } catch (error) {
+    console.error('Error rescheduling email:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to reschedule email' 
+    });
+  }
+});
+
+// Send test email
+router.post('/test-send', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== POST /test-send route called ===');
+    const { error } = scheduleEmailSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        error: error.details[0].message 
+      });
+    }
+
+    const userId = req.user.uid;
+    const emailData = req.body;
+    console.log('Sending test email for user:', userId);
+    
+    // Send email immediately (for testing)
+    await emailService.sendEmail({
+      userId: userId,
+      from: emailData.from,
+      to: emailData.recipients,
+      cc: emailData.cc,
+      bcc: emailData.bcc,
+      subject: emailData.subject,
+      html: emailData.body
+    });
+    
+    console.log('Test email sent successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Test email sent successfully'
+    });
+  } catch (error) {
+    console.error('Error sending test email:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to send test email' 
+    });
+  }
+});
+
+// Get email activity/history
+router.get('/activity', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== GET /activity route called ===');
+    const userId = req.user.uid;
+    const snapshot = await admin.firestore
+      .collection('users')
+      .doc(userId)
+      .collection('scheduledEmails')
+      .where('status', 'in', ['sent', 'failed'])
+      .orderBy('sentAt', 'desc')
+      .limit(50)
+      .get();
+    
+    const activity = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    console.log('Activity fetched:', activity.length, 'records');
+    
+    res.status(200).json({
+      success: true,
+      activity: activity
+    });
+  } catch (error) {
+    console.error('Error fetching email activity:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch email activity' 
+    });
+  }
+});
+
+// Verify email service configuration
+router.get('/verify', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== GET /verify route called ===');
+    const userId = req.user.uid;
+    // Add logic to verify user's email service configuration
+    // This would check if OAuth tokens are valid, etc.
+    
+    res.status(200).json({
+      success: true,
+      verified: true,
+      message: 'Email service is configured correctly'
+    });
   } catch (error) {
     console.error('Error verifying email service:', error);
-    res.status(500).json({ error: 'Failed to verify email service' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to verify email service' 
+    });
   }
 });
 

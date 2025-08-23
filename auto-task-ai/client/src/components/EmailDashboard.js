@@ -2,25 +2,26 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Button, Typography, CircularProgress, Alert } from '@mui/material';
 import EmailComposer from './EmailComposer';
 import EmailScheduleList from './EmailScheduleList';
-// This now correctly uses the functions from your api.js file
 import { emailAPI } from '../utils/api';
 
 const EmailDashboard = () => {
   const [showComposer, setShowComposer] = useState(false);
   const [scheduledEmails, setScheduledEmails] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); // Manages the error message
 
   const fetchScheduledEmails = useCallback(async () => {
     try {
       setLoading(true);
-      // This function now comes from your api.js
+      // --- THIS IS THE FIX ---
+      // Clear any previous errors right before making a new request.
+      setError(''); 
+      
       const emails = await emailAPI.getScheduledEmails();
       setScheduledEmails(emails);
-      setError('');
     } catch (err) {
-      setError('Failed to fetch scheduled emails.');
-      console.error(err);
+      console.error('Error in fetchScheduledEmails:', err);
+      setError('Failed to load the list of scheduled emails.');
     } finally {
       setLoading(false);
     }
@@ -32,13 +33,14 @@ const EmailDashboard = () => {
 
   const handleScheduleEmail = async (emailData) => {
     try {
-      // This function now comes from your api.js
+      // Also clear errors before attempting to schedule
+      setError(''); 
       await emailAPI.scheduleEmail(emailData);
-      setShowComposer(false); // Hide the composer form
+      setShowComposer(false); // Hide the form on success
       fetchScheduledEmails(); // Refresh the list from the database
-    } catch (error) {
-      console.error('Error scheduling email:', error);
-      setError('Failed to schedule the email. Please try again.');
+    } catch (err) {
+      console.error('Error in handleScheduleEmail:', err);
+      setError('Failed to schedule the email. Please check the details and try again.');
     }
   };
 
@@ -52,7 +54,8 @@ const EmailDashboard = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {/* This Alert will now correctly disappear when there is no error */}
+      {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
       
       {showComposer ? (
         <EmailComposer onSchedule={handleScheduleEmail} onCancel={() => setShowComposer(false)} />
