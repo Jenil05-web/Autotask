@@ -94,7 +94,29 @@ export const emailAPI = {
   verifyEmailService: () => 
     apiRequest('/emails/verify')
 };
+// Gmail API functions
+export const gmailAPI = {
+  // Get Gmail OAuth URL
+  getAuthUrl: () => 
+    apiRequest('/auth/google/url'),
 
+  // Check Gmail connection status
+  getStatus: () => 
+    apiRequest('/auth/google/status'),
+
+  // Disconnect Gmail account
+  disconnect: () => 
+    apiRequest('/auth/google/disconnect', {
+      method: 'DELETE'
+    }),
+
+  // Send test email
+  sendTest: (testEmail) => 
+    apiRequest('/auth/google/test', {
+      method: 'POST',
+      body: JSON.stringify({ testEmail })
+    })
+};
 // Generic API functions
 export const api = {
   get: (endpoint) => apiRequest(endpoint),

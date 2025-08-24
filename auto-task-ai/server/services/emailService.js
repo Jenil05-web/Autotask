@@ -46,7 +46,8 @@ const createTransporter = async (userId) => {
     
     console.log('Access token obtained successfully');
     
-    const transporter = nodemailer.createTransporter({
+    // FIX: Changed from createTransporter to createTransport
+    const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         type: 'OAuth2',
@@ -79,7 +80,7 @@ const createTransporter = async (userId) => {
   }
 };
 
-const sendEmail = async ({ userId, from, to, cc, bcc, subject, html }) => {
+const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => {
   try {
     console.log('=== Sending Email ===');
     console.log('User ID:', userId);
@@ -112,12 +113,14 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html }) => {
       cc: cc && cc.length > 0 ? cc.join(', ') : undefined,
       bcc: bcc && bcc.length > 0 ? bcc.join(', ') : undefined,
       subject: subject,
-      html: html
+      html: html,
+      text: text
     };
     
     console.log('Sending email with options:', {
       ...mailOptions,
-      html: html ? '[HTML Content]' : undefined
+      html: html ? '[HTML Content]' : undefined,
+      text: text ? '[Text Content]' : undefined
     });
     
     const info = await transporter.sendMail(mailOptions);

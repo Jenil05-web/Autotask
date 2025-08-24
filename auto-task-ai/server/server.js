@@ -45,9 +45,9 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Import routes
+// Import routes - USE THE CORRECT AUTH FILE
 const emailRoutes = require('./routes/emails');
-const authRoutes = require('./routes/auth'); // ✅ Fixed: Changed from 'googleAuth' to 'auth'
+const authRoutes = require('./routes/auth'); // This is the correct file with /google/* routes
 
 // Basic routes
 app.get('/', (req, res) => {
@@ -63,9 +63,9 @@ app.get('/api/tasks', (req, res) => {
   });
 });
 
-// API routes
+// API routes - Mount auth routes at /api/auth (this gives us /api/auth/google/*)
 app.use('/api/emails', emailRoutes);
-app.use('/api/auth', authRoutes); // ✅ Fixed: Changed from '/api/auth/google' to '/api/auth'
+app.use('/api/auth', authRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

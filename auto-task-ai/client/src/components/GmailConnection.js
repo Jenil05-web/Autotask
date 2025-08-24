@@ -30,7 +30,11 @@ import {
 import { auth } from '../firebase/firebase.config.local.js';
 import { onAuthStateChanged } from 'firebase/auth';
 
+
 const GmailConnection = () => {
+  // Add API base URL
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  
   const [connectionStatus, setConnectionStatus] = useState({
     connected: false,
     email: null,
@@ -38,6 +42,7 @@ const GmailConnection = () => {
   });
   const [connecting, setConnecting] = useState(false);
   const [testDialog, setTestDialog] = useState(false);
+
   const [testEmail, setTestEmail] = useState('');
   const [testLoading, setTestLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -130,8 +135,8 @@ const GmailConnection = () => {
         return;
       }
       
-      console.log('🔍 Debug: Making API request to /api/auth/google/status');
-      const response = await fetch('/api/auth/google/status', {
+      console.log('🔍 Debug: Making API request to', `${API_BASE_URL}/auth/google/status`);
+      const response = await fetch(`${API_BASE_URL}/auth/google/status`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -182,7 +187,8 @@ const GmailConnection = () => {
         throw new Error('User not authenticated - please refresh the page and try again');
       }
 
-      const response = await fetch('/api/auth/google/url', {
+      console.log('🔍 Debug: Making API request to', `${API_BASE_URL}/auth/google/url`);
+      const response = await fetch(`${API_BASE_URL}/auth/google/url`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -232,7 +238,7 @@ const GmailConnection = () => {
         throw new Error('User not authenticated');
       }
 
-      const response = await fetch('/api/auth/google/disconnect', {
+      const response = await fetch(`${API_BASE_URL}/auth/google/disconnect`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -272,7 +278,7 @@ const GmailConnection = () => {
         throw new Error('User not authenticated');
       }
       
-      const response = await fetch('/api/auth/google/test', {
+      const response = await fetch(`${API_BASE_URL}/auth/google/test`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
