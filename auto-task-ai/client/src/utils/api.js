@@ -1,5 +1,5 @@
 // API utility functions with authentication
-import { auth } from '../firebase/config';
+import { auth } from '../firebase/firebase.config.local.js';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 

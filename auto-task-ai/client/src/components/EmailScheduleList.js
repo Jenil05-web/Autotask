@@ -66,6 +66,7 @@ const EmailScheduleList = ({ onEdit }) => {
       alert('API is NOT reachable: ' + error.message);
     }
   };
+  
 
   const fetchScheduledEmails = async () => {
     try {
@@ -75,7 +76,7 @@ const EmailScheduleList = ({ onEdit }) => {
       console.log('Starting to fetch scheduled emails...');
       
       // Check Firebase Auth status first
-      const { auth } = await import('../firebase/config');
+      const { auth } = await import('../firebase/firebase.config.local.js');
       const currentUser = auth.currentUser;
       console.log('Current Firebase user:', currentUser);
       console.log('User authenticated:', !!currentUser);

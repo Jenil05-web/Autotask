@@ -10,7 +10,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
+import { auth, db } from '../firebase/firebase.config.local.js';
 
 const AuthContext = createContext();
 
@@ -32,16 +32,27 @@ export const AuthProvider = ({ children }) => {
       if (user) {
         // Get additional user data from Firestore
         try {
+          console.log('📋 Fetching user data from Firestore for:', user.uid);
+          
+          // Check if db is properly imported and initialized
+          if (!db) {
+            console.error('❌ Firestore db is not initialized');
+            throw new Error('Firestore is not properly configured');
+          }
+          
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
+            const userData = userDoc.data();
             setUser({
               uid: user.uid,
               email: user.email,
               displayName: user.displayName,
               photoURL: user.photoURL,
-              ...userDoc.data()
+              ...userData
             });
+            console.log('📋 User data loaded from Firestore');
           } else {
+            console.log('📋 No Firestore document found, using basic Firebase data');
             setUser({
               uid: user.uid,
               email: user.email,
@@ -50,8 +61,8 @@ export const AuthProvider = ({ children }) => {
             });
           }
         } catch (error) {
-          console.error('Error fetching user data:', error);
-          // If Firestore is unavailable, use basic user data
+          console.error('📋 Error fetching user data from Firestore:', error);
+          // Fallback to basic user data if Firestore fails
           setUser({
             uid: user.uid,
             email: user.email,
@@ -76,26 +87,29 @@ export const AuthProvider = ({ children }) => {
       // Update profile with display name
       await updateProfile(result.user, { displayName });
       
-      // Create user document in Firestore (skip in demo mode)
+      // Create user document in Firestore
       try {
-        await setDoc(doc(db, 'users', result.user.uid), {
-          email,
-          displayName,
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-          preferences: {
-            theme: 'light',
-            notifications: true
-          }
-        });
-      } catch (error) {
-        console.error('Error creating user document:', error);
+        if (db) {
+          await setDoc(doc(db, 'users', result.user.uid), {
+            email,
+            displayName,
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            preferences: {
+              theme: 'light',
+              notifications: true
+            }
+          });
+          console.log('📋 User document created in Firestore');
+        }
+      } catch (firestoreError) {
+        console.error('📋 Error creating user document:', firestoreError);
         // Continue with signup even if Firestore write fails
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Signup error:', error);
+      console.error('📋 Signup error:', error);
       return { 
         success: false, 
         error: getFirebaseErrorMessage(error.code) 
@@ -108,21 +122,22 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       
-      // Update last login time (skip in demo mode)
-      if (result.user) {
+      // Update last login time
+      if (result.user && db) {
         try {
           await setDoc(doc(db, 'users', result.user.uid), {
             lastLogin: new Date().toISOString()
           }, { merge: true });
-        } catch (error) {
-          console.error('Error updating login time:', error);
+          console.log('📋 Last login time updated');
+        } catch (firestoreError) {
+          console.error('📋 Error updating login time:', firestoreError);
           // Continue with login even if Firestore write fails
         }
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('📋 Login error:', error);
       return { 
         success: false, 
         error: getFirebaseErrorMessage(error.code) 
@@ -137,29 +152,38 @@ export const AuthProvider = ({ children }) => {
       const result = await signInWithPopup(auth, provider);
       
       // Check if user document exists, if not create one
-      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
-      if (!userDoc.exists()) {
-        await setDoc(doc(db, 'users', result.user.uid), {
-          email: result.user.email,
-          displayName: result.user.displayName,
-          photoURL: result.user.photoURL,
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-          preferences: {
-            theme: 'light',
-            notifications: true
+      if (db) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+          if (!userDoc.exists()) {
+            await setDoc(doc(db, 'users', result.user.uid), {
+              email: result.user.email,
+              displayName: result.user.displayName,
+              photoURL: result.user.photoURL,
+              createdAt: new Date().toISOString(),
+              lastLogin: new Date().toISOString(),
+              preferences: {
+                theme: 'light',
+                notifications: true
+              }
+            });
+            console.log('📋 New Google user document created');
+          } else {
+            // Update last login time
+            await setDoc(doc(db, 'users', result.user.uid), {
+              lastLogin: new Date().toISOString()
+            }, { merge: true });
+            console.log('📋 Google user login time updated');
           }
-        });
-      } else {
-        // Update last login time
-        await setDoc(doc(db, 'users', result.user.uid), {
-          lastLogin: new Date().toISOString()
-        }, { merge: true });
+        } catch (firestoreError) {
+          console.error('📋 Error handling Google user document:', firestoreError);
+          // Continue with login even if Firestore operations fail
+        }
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Google sign-in error:', error);
+      console.error('📋 Google sign-in error:', error);
       return { 
         success: false, 
         error: getFirebaseErrorMessage(error.code) 
@@ -173,7 +197,7 @@ export const AuthProvider = ({ children }) => {
       await sendPasswordResetEmail(auth, email);
       return { success: true };
     } catch (error) {
-      console.error('Password reset error:', error);
+      console.error('📋 Password reset error:', error);
       return { 
         success: false, 
         error: getFirebaseErrorMessage(error.code) 
@@ -187,7 +211,7 @@ export const AuthProvider = ({ children }) => {
       await signOut(auth);
       return { success: true };
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('📋 Logout error:', error);
       return { 
         success: false, 
         error: getFirebaseErrorMessage(error.code) 
@@ -202,7 +226,15 @@ export const AuthProvider = ({ children }) => {
         await updateProfile(auth.currentUser, updates);
         
         // Update Firestore document
-        await setDoc(doc(db, 'users', auth.currentUser.uid), updates, { merge: true });
+        if (db) {
+          try {
+            await setDoc(doc(db, 'users', auth.currentUser.uid), updates, { merge: true });
+            console.log('📋 User profile updated in Firestore');
+          } catch (firestoreError) {
+            console.error('📋 Error updating Firestore document:', firestoreError);
+            // Continue with profile update even if Firestore write fails
+          }
+        }
         
         // Update local state
         setUser(prev => ({ ...prev, ...updates }));
@@ -211,7 +243,7 @@ export const AuthProvider = ({ children }) => {
       }
       return { success: false, error: 'No user logged in' };
     } catch (error) {
-      console.error('Profile update error:', error);
+      console.error('📋 Profile update error:', error);
       return { 
         success: false, 
         error: getFirebaseErrorMessage(error.code) 

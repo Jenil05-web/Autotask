@@ -1,10 +1,27 @@
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 require('dotenv').config();
+
+// Initialize Firebase Admin SDK
+const admin = require('firebase-admin');
+
+if (!admin.apps.length) {
+  try {
+    // Parse the service account key from environment variable
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId: process.env.FIREBASE_PROJECT_ID
+    });
+    console.log('✅ Firebase Admin initialized');
+  } catch (error) {
+    console.error('❌ Firebase Admin initialization failed:', error.message);
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,6 +47,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Import routes
 const emailRoutes = require('./routes/emails');
+const authRoutes = require('./routes/auth'); // ✅ Fixed: Changed from 'googleAuth' to 'auth'
 
 // Basic routes
 app.get('/', (req, res) => {
@@ -47,6 +65,7 @@ app.get('/api/tasks', (req, res) => {
 
 // API routes
 app.use('/api/emails', emailRoutes);
+app.use('/api/auth', authRoutes); // ✅ Fixed: Changed from '/api/auth/google' to '/api/auth'
 
 // Error handling middleware
 app.use((err, req, res, next) => {
