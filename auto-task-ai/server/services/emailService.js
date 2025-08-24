@@ -3,12 +3,6 @@ const { google } = require('googleapis');
 const firebaseAdminService = require('./firebaseAdmin');
 const admin = firebaseAdminService.admin;
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
-
 // This function dynamically creates a transporter for a specific user
 const createTransporter = async (userId) => {
   try {
@@ -32,6 +26,14 @@ const createTransporter = async (userId) => {
     }
     
     console.log('User has valid Google refresh token, creating OAuth2 transporter...');
+    console.log('User email from database:', userData.googleEmail);
+    
+    // FIX: Create a new OAuth2Client with proper credentials for this user
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
     
     oauth2Client.setCredentials({
       refresh_token: user_refresh_token
@@ -46,19 +48,20 @@ const createTransporter = async (userId) => {
     
     console.log('Access token obtained successfully');
     
-    // FIX: Changed from createTransporter to createTransport
+    // Create transporter with proper OAuth2 configuration
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         type: 'OAuth2',
-        user: userData.googleEmail || 'me',
+        user: userData.googleEmail, // Must be the actual email, not 'me'
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         refreshToken: user_refresh_token,
-        accessToken: tokenResponse.token
+        accessToken: tokenResponse.token,
       }
     });
     
+    console.log('Testing transporter verification...');
     // Verify transporter
     await transporter.verify();
     console.log('Email transporter verified successfully');
@@ -68,7 +71,7 @@ const createTransporter = async (userId) => {
     console.error('Error creating email transporter:', error);
     
     // Handle specific Google OAuth errors
-    if (error.message.includes('invalid_grant')) {
+    if (error.message.includes('invalid_grant') || error.message.includes('invalid_request')) {
       throw new Error('Google refresh token is invalid or expired. Please reconnect your Gmail account.');
     } else if (error.message.includes('insufficient_scope')) {
       throw new Error('Insufficient Gmail permissions. Please reconnect your Gmail account with full permissions.');
@@ -107,8 +110,13 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => 
     
     const transporter = await createTransporter(userId);
     
+    // Get user data to set the proper 'from' field
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    const userEmail = userData.googleEmail;
+    
     const mailOptions = {
-      from: from,
+      from: `"${userData.displayName || 'Auto Task AI'}" <${userEmail}>`, // Use authenticated user's email
       to: to.join(', '),
       cc: cc && cc.length > 0 ? cc.join(', ') : undefined,
       bcc: bcc && bcc.length > 0 ? bcc.join(', ') : undefined,
@@ -118,9 +126,11 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => 
     };
     
     console.log('Sending email with options:', {
-      ...mailOptions,
-      html: html ? '[HTML Content]' : undefined,
-      text: text ? '[Text Content]' : undefined
+      from: mailOptions.from,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      html: html ? '[HTML Content Present]' : undefined,
+      text: text ? '[Text Content Present]' : undefined
     });
     
     const info = await transporter.sendMail(mailOptions);
