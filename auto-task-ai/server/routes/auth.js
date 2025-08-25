@@ -36,9 +36,10 @@ router.get('/google/url', authenticateToken, (req, res) => {
       access_type: 'offline',
       prompt: 'consent', // Force refresh token
       scope: [
-        'https://www.googleapis.com/auth/gmail.send',
-        'https://www.googleapis.com/auth/gmail.compose',
-        'https://www.googleapis.com/auth/userinfo.email'
+          'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',     // ✅ Add this - broader Gmail access
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile'       
       ],
       state: state
     });
