@@ -35,6 +35,7 @@ server.log
 .idea/
 # Ignore local Firebase configuration files
 client/src/firebase/firebase.config.local.js
+serviceAccountKey.json
 
 # OS
 .DS_Store
