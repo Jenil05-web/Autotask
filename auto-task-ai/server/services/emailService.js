@@ -28,7 +28,7 @@ const createTransporter = async (userId) => {
     console.log('User has valid Google refresh token, creating OAuth2 transporter...');
     console.log('User email from database:', userData.googleEmail);
     
-    // FIX: Create a new OAuth2Client with proper credentials for this user
+    // FIX: Create OAuth2 client with proper credentials every time
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -39,6 +39,7 @@ const createTransporter = async (userId) => {
       refresh_token: user_refresh_token
     });
     
+    console.log('Getting fresh access token...');
     // Get fresh access token
     const tokenResponse = await oauth2Client.getAccessToken();
     
@@ -53,7 +54,7 @@ const createTransporter = async (userId) => {
       service: 'gmail',
       auth: {
         type: 'OAuth2',
-        user: userData.googleEmail, // Must be the actual email, not 'me'
+        user: userData.googleEmail, // Must be the actual email
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         refreshToken: user_refresh_token,
@@ -71,12 +72,14 @@ const createTransporter = async (userId) => {
     console.error('Error creating email transporter:', error);
     
     // Handle specific Google OAuth errors
-    if (error.message.includes('invalid_grant') || error.message.includes('invalid_request')) {
+    if (error.message.includes('invalid_grant')) {
       throw new Error('Google refresh token is invalid or expired. Please reconnect your Gmail account.');
     } else if (error.message.includes('insufficient_scope')) {
       throw new Error('Insufficient Gmail permissions. Please reconnect your Gmail account with full permissions.');
     } else if (error.message.includes('unauthorized_client')) {
       throw new Error('Gmail OAuth configuration error. Please contact support.');
+    } else if (error.message.includes('invalid_request')) {
+      throw new Error('Gmail OAuth configuration error. Please check your Google Cloud Console settings.');
     }
     
     throw error;
@@ -126,11 +129,9 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => 
     };
     
     console.log('Sending email with options:', {
-      from: mailOptions.from,
-      to: mailOptions.to,
-      subject: mailOptions.subject,
-      html: html ? '[HTML Content Present]' : undefined,
-      text: text ? '[Text Content Present]' : undefined
+      ...mailOptions,
+      html: html ? '[HTML Content]' : undefined,
+      text: text ? '[Text Content]' : undefined
     });
     
     const info = await transporter.sendMail(mailOptions);

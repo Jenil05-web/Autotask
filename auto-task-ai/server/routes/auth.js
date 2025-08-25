@@ -1,4 +1,11 @@
 // routes/auth.js - Google OAuth routes
+require('dotenv').config(); // <-- ADD THIS LINE AT THE VERY TOP
+console.log('--- Verifying Environment Variables ---');
+console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
+console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
+console.log('GOOGLE_REDIRECT_URI:', process.env.GOOGLE_REDIRECT_URI);
+console.log('------------------------------------');
+
 const express = require('express');
 const router = express.Router();
 const { google } = require('googleapis');
@@ -7,6 +14,7 @@ const firebaseAdminService = require('../services/firebaseAdmin');
 const admin = firebaseAdminService.admin;
 
 // Initialize OAuth2 client
+// This will now have access to the environment variables
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
@@ -34,6 +42,10 @@ router.get('/google/url', authenticateToken, (req, res) => {
       ],
       state: state
     });
+    console.log('--- GENERATED GOOGLE AUTH URL ---');
+    console.log(authUrl);
+    console.log('---------------------------------');
+    
     
     console.log('OAuth URL generated successfully');
     res.json({
@@ -45,7 +57,7 @@ router.get('/google/url', authenticateToken, (req, res) => {
     console.error('Error generating OAuth URL:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to generate OAuth URL'
+      error: 'Failed to generate OAuth URL. Check server credentials.'
     });
   }
 });
@@ -118,7 +130,7 @@ router.get('/google/callback', async (req, res) => {
         <body>
           <h2>✅ Gmail Account Connected Successfully!</h2>
           <p>Your Gmail account <strong>${userInfo.data.email}</strong> has been connected.</p>
-          <p>You can now schedule and send emails through your Gmail account.</p>
+          <p>You can now close this window.</p>
           <script>
             // Close popup if opened in popup
             if (window.opener) {
@@ -159,8 +171,12 @@ router.get('/google/status', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.uid;
     const userDoc = await admin.firestore().collection('users').doc(userId).get();
-    const userData = userDoc.data();
     
+    if (!userDoc.exists) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const userData = userDoc.data();
     const isConnected = !!(userData?.googleRefreshToken && userData?.googleConnected);
     
     res.json({
