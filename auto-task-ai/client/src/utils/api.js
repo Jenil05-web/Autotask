@@ -105,7 +105,7 @@ export const emailAPI = {
 
   // DELETE SCHEDULED EMAIL - Completely removes from database and cancels cron job
   deleteScheduledEmail: (emailId) => 
-    apiRequest(`/emails/scheduled/${emailId}/delete`, {
+    apiRequest(`/emails/scheduled/${emailId}`, {
       method: 'DELETE'
     }),
 
