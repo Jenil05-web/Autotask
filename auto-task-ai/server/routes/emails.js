@@ -369,7 +369,7 @@ router.get('/verify', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
     
     // Check user's email configuration in Firestore
-    const userDoc = await admin.firestore
+    const userDoc = await db
       .collection('users')
       .doc(userId)
       .get();
