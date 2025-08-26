@@ -49,30 +49,35 @@ const EmailDashboard = () => {
   const [stats, setStats] = useState({ total: 0, active: 0, sent: 0, failed: 0 });
 
   const fetchScheduledEmails = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError('');
-      
-      const emails = await emailAPI.getScheduledEmails();
-      setScheduledEmails(emails);
-      
-      // Calculate stats
-      const stats = {
-        total: emails.length,
-        active: emails.filter(e => e.status === 'scheduled').length,
-        sent: emails.filter(e => e.status === 'sent' || e.totalSent > 0).length,
-        failed: emails.filter(e => e.status === 'failed').length
-      };
-      setStats(stats);
-      
-    } catch (err) {
-      console.error('Error in fetchScheduledEmails:', err);
-      setError('Failed to load the list of scheduled emails.');
-      showSnackbar('Failed to load scheduled emails', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  try {
+    setLoading(true);
+    setError('');
+    
+    const emails = await emailAPI.getScheduledEmails();
+    
+    // Ensure emails is always an array
+    const emailsArray = Array.isArray(emails) ? emails : [];
+    setScheduledEmails(emailsArray);
+    
+    // Calculate stats
+    const stats = {
+      total: emailsArray.length,
+      active: emailsArray.filter(e => e.status === 'scheduled').length,
+      sent: emailsArray.filter(e => e.status === 'sent' || e.totalSent > 0).length,
+      failed: emailsArray.filter(e => e.status === 'failed').length
+    };
+    setStats(stats);
+    
+  } catch (err) {
+    console.error('Error in fetchScheduledEmails:', err);
+    setError('Failed to load the list of scheduled emails.');
+    setScheduledEmails([]); // Ensure it's always an array even on error
+    setStats({ total: 0, active: 0, sent: 0, failed: 0 });
+    showSnackbar('Failed to load scheduled emails', 'error');
+  } finally {
+    setLoading(false);
+  }
+}, []);
 
   useEffect(() => {
     fetchScheduledEmails();

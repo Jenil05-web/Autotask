@@ -1,5 +1,5 @@
 // API utility functions with authentication
-import { auth } from '../firebase/firebase.config.local.js';
+import { auth } from '../firebase/config.js'; // FIXED: Correct import path
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -18,7 +18,7 @@ const getAuthToken = async () => {
   return null;
 };
 
-// Make authenticated API request
+// Make authenticated API request with better error handling
 const apiRequest = async (endpoint, options = {}) => {
   const token = await getAuthToken();
   
@@ -33,10 +33,19 @@ const apiRequest = async (endpoint, options = {}) => {
 
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    const data = await response.json();
+    
+    // Handle non-JSON responses (like 500 errors)
+    let data;
+    try {
+      data = await response.json();
+    } catch (jsonError) {
+      console.error('Failed to parse JSON response:', jsonError);
+      throw new Error(`Server error: ${response.status} ${response.statusText}`);
+    }
     
     if (!response.ok) {
-      throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      console.error('API Error Response:', data);
+      throw new Error(data.error || data.message || `HTTP error! status: ${response.status}`);
     }
     
     return data;
@@ -46,18 +55,47 @@ const apiRequest = async (endpoint, options = {}) => {
   }
 };
 
-// Email API functions
+// Email API functions with improved error handling
 export const emailAPI = {
   // Schedule a new email
-  scheduleEmail: (emailData) => 
-    apiRequest('/emails/schedule', {
-      method: 'POST',
-      body: JSON.stringify(emailData)
-    }),
+  scheduleEmail: async (emailData) => {
+    try {
+      console.log('Scheduling email:', emailData);
+      const result = await apiRequest('/emails/schedule', {
+        method: 'POST',
+        body: JSON.stringify(emailData)
+      });
+      console.log('Email scheduled successfully:', result);
+      return result;
+    } catch (error) {
+      console.error('Error scheduling email:', error);
+      throw error;
+    }
+  },
 
-  // Get scheduled emails
-  getScheduledEmails: () => 
-    apiRequest('/emails/scheduled'),
+  // Get scheduled emails with proper array handling
+  getScheduledEmails: async () => {
+    try {
+      console.log('Fetching scheduled emails...');
+      const response = await apiRequest('/emails/scheduled');
+      console.log('Raw API response:', response);
+      
+      // Handle different response formats
+      if (response.success && Array.isArray(response.emails)) {
+        return response.emails;
+      } else if (Array.isArray(response)) {
+        return response;
+      } else if (response.data && Array.isArray(response.data)) {
+        return response.data;
+      } else {
+        console.warn('Unexpected response format, returning empty array:', response);
+        return [];
+      }
+    } catch (error) {
+      console.error('Error fetching scheduled emails:', error);
+      return []; // Return empty array on error to prevent map errors
+    }
+  },
 
   // Cancel scheduled email (keeps record but cancels execution)
   cancelEmail: (emailId) => 

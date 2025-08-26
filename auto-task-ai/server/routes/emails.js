@@ -1,10 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('../services/firebaseAdmin');
 const { scheduleNewEmail, cancelScheduledEmail, rescheduleEmail } = require('../services/emailScheduler');
 const emailService = require('../services/emailService');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const Joi = require('joi');
+
+// Fix the Firebase Admin import
+const firebaseAdminService = require('../services/firebaseAdmin');
+const { admin } = require('../services/firebaseAdmin');
+
+
 
 // Validation schema
 const scheduleEmailSchema = Joi.object({

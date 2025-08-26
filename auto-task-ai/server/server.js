@@ -5,23 +5,8 @@ const morgan = require('morgan');
 const compression = require('compression');
 require('dotenv').config();
 
-// Initialize Firebase Admin SDK
-const admin = require('firebase-admin');
-
-if (!admin.apps.length) {
-  try {
-    // Parse the service account key from environment variable
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-    
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      projectId: process.env.FIREBASE_PROJECT_ID
-    });
-    console.log('✅ Firebase Admin initialized');
-  } catch (error) {
-    console.error('❌ Firebase Admin initialization failed:', error.message);
-  }
-}
+// Import the Firebase Admin service (handles initialization properly)
+const firebaseAdmin = require('./services/firebaseAdmin');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -45,13 +30,17 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Import routes - USE THE CORRECT AUTH FILE
+// Import routes
 const emailRoutes = require('./routes/emails');
-const authRoutes = require('./routes/auth'); // This is the correct file with /google/* routes
+const authRoutes = require('./routes/auth');
 
 // Basic routes
 app.get('/', (req, res) => {
-  res.json({ message: 'Auto Task AI Server is running!' });
+  res.json({ 
+    message: 'Auto Task AI Server is running!',
+    firebase: firebaseAdmin.isInitialized() ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.get('/api/tasks', (req, res) => {
@@ -63,7 +52,21 @@ app.get('/api/tasks', (req, res) => {
   });
 });
 
-// API routes - Mount auth routes at /api/auth (this gives us /api/auth/google/*)
+// Debug route for environment variables
+app.get('/debug/env', (req, res) => {
+  res.json({
+    hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    hasRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
+    hasFirebaseProjectId: !!process.env.FIREBASE_PROJECT_ID,
+    hasFirebaseServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+    clientIdPreview: process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + '...' : 'MISSING',
+    redirectUri: process.env.GOOGLE_REDIRECT_URI,
+    firebaseInitialized: firebaseAdmin.isInitialized()
+  });
+});
+
+// API routes
 app.use('/api/emails', emailRoutes);
 app.use('/api/auth', authRoutes);
 
@@ -96,13 +99,5 @@ process.on('SIGINT', () => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
-app.get('/debug/env', (req, res) => {
-  res.json({
-    hasClientId: !!process.env.GOOGLE_CLIENT_ID,
-    hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-    hasRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
-    clientIdPreview: process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + '...' : 'MISSING',
-    redirectUri: process.env.GOOGLE_REDIRECT_URI
-  });
+  console.log(`🔥 Firebase Admin: ${firebaseAdmin.isInitialized() ? '✅ Connected' : '❌ Not Connected'}`);
 });
