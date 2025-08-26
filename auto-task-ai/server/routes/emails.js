@@ -140,6 +140,7 @@ router.get('/scheduled', authenticateToken, async (req, res) => {
 });
 
 // Cancel a scheduled email - UPDATED TO PROPERLY CANCEL
+// Cancel a scheduled email - UPDATED TO PROPERLY CANCEL
 router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
   try {
     console.log('=== DELETE /scheduled/:id route called ===');
@@ -163,7 +164,7 @@ router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
     
     const emailData = emailDoc.data();
     
-    // Cancel the scheduled task if it exists (you'll need this function in emailScheduler)
+    // Cancel the scheduled task if it exists
     if (emailData.status === 'scheduled') {
       try {
         await cancelScheduledEmail(userId, emailId, emailData);
@@ -173,8 +174,57 @@ router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
       }
     }
     
-    // Update the document status
+    // Update the document status - FIX: Use firebaseAdminService admin reference
     await db
+      .collection('users')
+      .doc(userId)
+      .collection('scheduledEmails')
+      .doc(emailId)
+      .update({
+        status: 'cancelled',
+        cancelledAt: firebaseAdminService.admin.firestore.FieldValue.serverTimestamp()
+      });
+    
+    console.log('Email cancelled successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Email cancelled successfully'
+    });
+  } catch (error) {
+    console.error('Error cancelling email:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to cancel email' 
+    });
+  }
+});
+
+// Reschedule an email - ENHANCED WITH PROPER RESCHEDULING
+router.put('/scheduled/:id/reschedule', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== PUT /scheduled/:id/reschedule route called ===');
+    const userId = req.user.uid;
+    const emailId = req.params.id;
+    const { scheduledFor } = req.body;
+
+    if (!scheduledFor) {
+      return res.status(400).json({
+        success: false,
+        error: 'scheduledFor is required'
+      });
+    }
+
+    // Validate the new date
+    const newDate = new Date(scheduledFor);
+    if (newDate <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Scheduled time must be in the future'
+      });
+    }
+
+    // Get the email document
+    const emailDoc = await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
