@@ -1,12 +1,11 @@
-const nodemailer = require('nodemailer');
 const { google } = require('googleapis');
 const firebaseAdminService = require('./firebaseAdmin');
 const admin = firebaseAdminService.admin;
 
-// This function dynamically creates a transporter for a specific user
-const createTransporter = async (userId) => {
+// Create Gmail API client for a specific user
+const createGmailClient = async (userId) => {
   try {
-    console.log('Creating email transporter for user:', userId);
+    console.log('Creating Gmail API client for user:', userId);
     
     const userDoc = await admin.firestore().collection('users').doc(userId).get();
     
@@ -25,10 +24,10 @@ const createTransporter = async (userId) => {
       throw new Error('Google account connection is disabled. Please reconnect your Gmail account.');
     }
     
-    console.log('User has valid Google refresh token, creating OAuth2 transporter...');
+    console.log('User has valid Google refresh token, creating OAuth2 client...');
     console.log('User email from database:', userData.googleEmail);
     
-    // FIX: Create OAuth2 client with proper credentials every time
+    // Create OAuth2 client with proper credentials
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -49,27 +48,12 @@ const createTransporter = async (userId) => {
     
     console.log('Access token obtained successfully');
     
-    // Create transporter with proper OAuth2 configuration
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        type: 'OAuth2',
-        user: userData.googleEmail, // Must be the actual email
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        refreshToken: user_refresh_token,
-        accessToken: tokenResponse.token,
-      }
-    });
+    // Create Gmail API client
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     
-    console.log('Testing transporter verification...');
-    // Verify transporter
-    await transporter.verify();
-    console.log('Email transporter verified successfully');
-    
-    return transporter;
+    return { gmail, userEmail: userData.googleEmail, displayName: userData.displayName };
   } catch (error) {
-    console.error('Error creating email transporter:', error);
+    console.error('Error creating Gmail API client:', error);
     
     // Handle specific Google OAuth errors
     if (error.message.includes('invalid_grant')) {
@@ -86,9 +70,63 @@ const createTransporter = async (userId) => {
   }
 };
 
+// Create email message in RFC 2822 format
+const createEmailMessage = ({ from, to, cc, bcc, subject, html, text }) => {
+  const boundary = `boundary_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  let message = '';
+  
+  // Headers
+  message += `From: ${from}\r\n`;
+  message += `To: ${Array.isArray(to) ? to.join(', ') : to}\r\n`;
+  
+  if (cc && cc.length > 0) {
+    message += `Cc: ${Array.isArray(cc) ? cc.join(', ') : cc}\r\n`;
+  }
+  
+  if (bcc && bcc.length > 0) {
+    message += `Bcc: ${Array.isArray(bcc) ? bcc.join(', ') : bcc}\r\n`;
+  }
+  
+  message += `Subject: ${subject}\r\n`;
+  message += `MIME-Version: 1.0\r\n`;
+  
+  // If we have both HTML and text, create multipart message
+  if (html && text) {
+    message += `Content-Type: multipart/alternative; boundary="${boundary}"\r\n\r\n`;
+    
+    // Text part
+    message += `--${boundary}\r\n`;
+    message += `Content-Type: text/plain; charset=utf-8\r\n`;
+    message += `Content-Transfer-Encoding: 7bit\r\n\r\n`;
+    message += `${text}\r\n\r\n`;
+    
+    // HTML part
+    message += `--${boundary}\r\n`;
+    message += `Content-Type: text/html; charset=utf-8\r\n`;
+    message += `Content-Transfer-Encoding: 7bit\r\n\r\n`;
+    message += `${html}\r\n\r\n`;
+    
+    message += `--${boundary}--\r\n`;
+  } else if (html) {
+    // HTML only
+    message += `Content-Type: text/html; charset=utf-8\r\n`;
+    message += `Content-Transfer-Encoding: 7bit\r\n\r\n`;
+    message += html;
+  } else if (text) {
+    // Text only
+    message += `Content-Type: text/plain; charset=utf-8\r\n`;
+    message += `Content-Transfer-Encoding: 7bit\r\n\r\n`;
+    message += text;
+  }
+  
+  return message;
+};
+
+// Send email using Gmail API
 const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => {
   try {
-    console.log('=== Sending Email ===');
+    console.log('=== Sending Email via Gmail API ===');
     console.log('User ID:', userId);
     console.log('From:', from);
     console.log('To:', to);
@@ -99,8 +137,8 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => 
       throw new Error('User ID is required');
     }
     
-    if (!to || !Array.isArray(to) || to.length === 0) {
-      throw new Error('Recipients (to) must be a non-empty array');
+    if (!to || (Array.isArray(to) && to.length === 0) || (!Array.isArray(to) && !to)) {
+      throw new Error('Recipients (to) must be provided');
     }
     
     if (!subject) {
@@ -111,51 +149,147 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => 
       throw new Error('Email content (html or text) is required');
     }
     
-    const transporter = await createTransporter(userId);
+    const { gmail, userEmail, displayName } = await createGmailClient(userId);
     
-    // Get user data to set the proper 'from' field
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
-    const userData = userDoc.data();
-    const userEmail = userData.googleEmail;
+    // Ensure to is an array for consistent handling
+    const toArray = Array.isArray(to) ? to : [to];
+    const ccArray = cc ? (Array.isArray(cc) ? cc : [cc]) : [];
+    const bccArray = bcc ? (Array.isArray(bcc) ? bcc : [bcc]) : [];
     
-    const mailOptions = {
-      from: `"${userData.displayName || 'Auto Task AI'}" <${userEmail}>`, // Use authenticated user's email
-      to: to.join(', '),
-      cc: cc && cc.length > 0 ? cc.join(', ') : undefined,
-      bcc: bcc && bcc.length > 0 ? bcc.join(', ') : undefined,
+    // Create the email message
+    const fromField = `"${displayName || 'Auto Task AI'}" <${userEmail}>`;
+    const emailMessage = createEmailMessage({
+      from: fromField,
+      to: toArray,
+      cc: ccArray,
+      bcc: bccArray,
       subject: subject,
       html: html,
       text: text
-    };
-    
-    console.log('Sending email with options:', {
-      ...mailOptions,
-      html: html ? '[HTML Content]' : undefined,
-      text: text ? '[Text Content]' : undefined
     });
     
-    const info = await transporter.sendMail(mailOptions);
+    console.log('Email message created, preparing to send...');
     
-    console.log('✅ Email sent successfully');
-    console.log('Message ID:', info.messageId);
-    console.log('Response:', info.response);
+    // Encode the message in base64url format
+    const encodedMessage = Buffer.from(emailMessage)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    
+    // Send the email
+    console.log('Sending email via Gmail API...');
+    const response = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: {
+        raw: encodedMessage
+      }
+    });
+    
+    console.log('✅ Email sent successfully via Gmail API');
+    console.log('Message ID:', response.data.id);
+    console.log('Thread ID:', response.data.threadId);
     
     return {
       success: true,
-      messageId: info.messageId,
-      response: info.response,
-      sentAt: new Date().toISOString()
+      messageId: response.data.id,
+      threadId: response.data.threadId,
+      labelIds: response.data.labelIds,
+      sentAt: new Date().toISOString(),
+      method: 'gmail_api'
     };
     
   } catch (error) {
-    console.error('❌ Email sending failed:', error);
+    console.error('❌ Email sending failed via Gmail API:', error);
+    
+    // Handle specific Gmail API errors
+    let errorMessage = error.message;
+    let errorCode = error.code || 'EMAIL_SEND_FAILED';
+    
+    if (error.response?.data?.error) {
+      const gmailError = error.response.data.error;
+      errorMessage = gmailError.message || errorMessage;
+      errorCode = gmailError.code || errorCode;
+      
+      // Handle specific Gmail API error codes
+      if (gmailError.code === 400) {
+        if (gmailError.message.includes('Invalid to header')) {
+          errorMessage = 'Invalid recipient email address format';
+        } else if (gmailError.message.includes('Precondition check failed')) {
+          errorMessage = 'Gmail API precondition failed. Please check email format and try again.';
+        }
+      } else if (gmailError.code === 403) {
+        if (gmailError.message.includes('Insufficient Permission')) {
+          errorMessage = 'Insufficient Gmail permissions. Please reconnect your Gmail account with full permissions.';
+        } else if (gmailError.message.includes('Daily Limit Exceeded')) {
+          errorMessage = 'Gmail API daily limit exceeded. Please try again tomorrow.';
+        }
+      } else if (gmailError.code === 401) {
+        errorMessage = 'Gmail authentication failed. Please reconnect your Gmail account.';
+      }
+    }
     
     // Return structured error response
     return {
       success: false,
-      error: error.message,
-      errorCode: error.code || 'EMAIL_SEND_FAILED',
-      sentAt: new Date().toISOString()
+      error: errorMessage,
+      errorCode: errorCode,
+      sentAt: new Date().toISOString(),
+      method: 'gmail_api'
+    };
+  }
+};
+
+// Get email details by message ID
+const getEmail = async (userId, messageId) => {
+  try {
+    const { gmail } = await createGmailClient(userId);
+    
+    const response = await gmail.users.messages.get({
+      userId: 'me',
+      id: messageId,
+      format: 'full'
+    });
+    
+    return {
+      success: true,
+      email: response.data
+    };
+  } catch (error) {
+    console.error('Error fetching email:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+// List emails with optional query
+const listEmails = async (userId, options = {}) => {
+  try {
+    const { gmail } = await createGmailClient(userId);
+    
+    const params = {
+      userId: 'me',
+      maxResults: options.maxResults || 10,
+      q: options.query || '',
+      labelIds: options.labelIds || undefined,
+      pageToken: options.pageToken || undefined
+    };
+    
+    const response = await gmail.users.messages.list(params);
+    
+    return {
+      success: true,
+      messages: response.data.messages || [],
+      nextPageToken: response.data.nextPageToken,
+      resultSizeEstimate: response.data.resultSizeEstimate
+    };
+  } catch (error) {
+    console.error('Error listing emails:', error);
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
@@ -179,11 +313,39 @@ const canUserSendEmails = async (userId) => {
       return { canSend: false, reason: 'Gmail account connection disabled' };
     }
     
-    return { canSend: true, email: userData.googleEmail };
+    // Try to create Gmail client to verify connectivity
+    try {
+      await createGmailClient(userId);
+      return { canSend: true, email: userData.googleEmail };
+    } catch (error) {
+      return { canSend: false, reason: error.message };
+    }
     
   } catch (error) {
     console.error('Error checking user email capabilities:', error);
     return { canSend: false, reason: error.message };
+  }
+};
+
+// Get user's Gmail profile
+const getUserProfile = async (userId) => {
+  try {
+    const { gmail } = await createGmailClient(userId);
+    
+    const response = await gmail.users.getProfile({
+      userId: 'me'
+    });
+    
+    return {
+      success: true,
+      profile: response.data
+    };
+  } catch (error) {
+    console.error('Error getting user Gmail profile:', error);
+    return {
+      success: false,
+      error: error.message
+    };
   }
 };
 
@@ -204,7 +366,10 @@ const personalizeEmail = (content, personalization = {}) => {
 };
 
 module.exports = { 
-  sendEmail, 
+  sendEmail,
+  getEmail,
+  listEmails,
   canUserSendEmails,
+  getUserProfile,
   personalizeEmail 
 };
