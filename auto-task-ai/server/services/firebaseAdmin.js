@@ -279,8 +279,11 @@ class FirebaseAdminService {
 
   // Direct access to admin instance for backward compatibility
   get admin() {
-    return admin;
+    return this.app ? this.app : admin;
   }
+  get db() {
+  return this.firestore;
+}
 }
 
 module.exports = new FirebaseAdminService();
