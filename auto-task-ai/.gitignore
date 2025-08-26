@@ -36,6 +36,7 @@ server.log
 # Ignore local Firebase configuration files
 client/src/firebase/firebase.config.local.js
 serviceAccountKey.json
+serviceAccountKey.json
 
 # OS
 .DS_Store

@@ -59,10 +59,44 @@ export const emailAPI = {
   getScheduledEmails: () => 
     apiRequest('/emails/scheduled'),
 
-  // Cancel scheduled email
+  // Cancel scheduled email (keeps record but cancels execution)
   cancelEmail: (emailId) => 
     apiRequest(`/emails/scheduled/${emailId}`, {
       method: 'DELETE'
+    }),
+
+  // DELETE SCHEDULED EMAIL - Completely removes from database and cancels cron job
+  deleteScheduledEmail: (emailId) => 
+    apiRequest(`/emails/scheduled/${emailId}/delete`, {
+      method: 'DELETE'
+    }),
+
+  // UPDATE SCHEDULED EMAIL - Modify existing scheduled email
+  updateScheduledEmail: (emailId, updateData) => 
+    apiRequest(`/emails/scheduled/${emailId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updateData)
+    }),
+
+  // PAUSE/RESUME SCHEDULED EMAIL - Temporarily disable/enable without deleting
+  pauseScheduledEmail: (emailId) => 
+    apiRequest(`/emails/scheduled/${emailId}/pause`, {
+      method: 'PATCH'
+    }),
+
+  resumeScheduledEmail: (emailId) => 
+    apiRequest(`/emails/scheduled/${emailId}/resume`, {
+      method: 'PATCH'
+    }),
+
+  // GET SINGLE SCHEDULED EMAIL - Get details of a specific email
+  getScheduledEmail: (emailId) => 
+    apiRequest(`/emails/scheduled/${emailId}`),
+
+  // DUPLICATE SCHEDULED EMAIL - Create a copy of existing email
+  duplicateScheduledEmail: (emailId) => 
+    apiRequest(`/emails/scheduled/${emailId}/duplicate`, {
+      method: 'POST'
     }),
 
   // Reschedule email
@@ -79,9 +113,17 @@ export const emailAPI = {
       body: JSON.stringify(emailData)
     }),
 
-  // Get email activity
+  // Get email activity/history
   getActivity: () => 
     apiRequest('/emails/activity'),
+
+  // Get email statistics
+  getEmailStats: () => 
+    apiRequest('/emails/stats'),
+
+  // Get execution history for a specific email
+  getEmailHistory: (emailId) => 
+    apiRequest(`/emails/scheduled/${emailId}/history`),
 
   // Preview email
   previewEmail: (emailData) => 
@@ -92,8 +134,31 @@ export const emailAPI = {
 
   // Verify email service
   verifyEmailService: () => 
-    apiRequest('/emails/verify')
+    apiRequest('/emails/verify'),
+
+  // BULK OPERATIONS
+  // Delete multiple emails at once
+  bulkDeleteEmails: (emailIds) => 
+    apiRequest('/emails/scheduled/bulk-delete', {
+      method: 'DELETE',
+      body: JSON.stringify({ emailIds })
+    }),
+
+  // Pause multiple emails at once
+  bulkPauseEmails: (emailIds) => 
+    apiRequest('/emails/scheduled/bulk-pause', {
+      method: 'PATCH',
+      body: JSON.stringify({ emailIds })
+    }),
+
+  // Resume multiple emails at once
+  bulkResumeEmails: (emailIds) => 
+    apiRequest('/emails/scheduled/bulk-resume', {
+      method: 'PATCH',
+      body: JSON.stringify({ emailIds })
+    })
 };
+
 // Gmail API functions
 export const gmailAPI = {
   // Get Gmail OAuth URL
@@ -115,8 +180,19 @@ export const gmailAPI = {
     apiRequest('/auth/google/test', {
       method: 'POST',
       body: JSON.stringify({ testEmail })
+    }),
+
+  // Get Gmail account info
+  getAccountInfo: () => 
+    apiRequest('/auth/google/account'),
+
+  // Refresh Gmail token
+  refreshToken: () => 
+    apiRequest('/auth/google/refresh', {
+      method: 'POST'
     })
 };
+
 // Generic API functions
 export const api = {
   get: (endpoint) => apiRequest(endpoint),
@@ -126,6 +202,10 @@ export const api = {
   }),
   put: (endpoint, data) => apiRequest(endpoint, {
     method: 'PUT',
+    body: JSON.stringify(data)
+  }),
+  patch: (endpoint, data) => apiRequest(endpoint, {
+    method: 'PATCH',
     body: JSON.stringify(data)
   }),
   delete: (endpoint) => apiRequest(endpoint, {
