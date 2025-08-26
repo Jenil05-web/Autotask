@@ -1,4 +1,5 @@
 const express = require('express');
+const admin = require('firebase-admin');
 const router = express.Router();
 const { scheduleNewEmail, cancelScheduledEmail, rescheduleEmail } = require('../services/emailScheduler');
 const emailService = require('../services/emailService');
@@ -175,15 +176,16 @@ router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
     }
     
     // Update the document status - FIX: Use firebaseAdminService admin reference
-    await db
-      .collection('users')
-      .doc(userId)
-      .collection('scheduledEmails')
-      .doc(emailId)
-      .update({
-        status: 'cancelled',
-        cancelledAt: firebaseAdminService.admin.firestore.FieldValue.serverTimestamp()
-      });
+   // Update the document status
+await db
+  .collection('users')
+  .doc(userId)
+  .collection('scheduledEmails')
+  .doc(emailId)
+  .update({
+    status: 'cancelled',
+cancelledAt: db.FieldValue.serverTimestamp()
+  });
     
     console.log('Email cancelled successfully');
     res.status(200).json({

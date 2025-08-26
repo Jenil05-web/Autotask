@@ -165,7 +165,7 @@ const executeEmailTask = async (userId, taskId, emailData, emailRef, destroyAfte
     // Update the status in Firestore
     const updateData = {
       lastSent: new Date().toISOString(),
-      totalSent: admin.firestore.FieldValue.increment(1)
+    totalSent: require('firebase-admin').firestore.FieldValue.increment(1)
     };
 
     // For one-time emails, mark as sent
@@ -203,7 +203,7 @@ const executeEmailTask = async (userId, taskId, emailData, emailRef, destroyAfte
 const scheduleFollowUpEmail = async (userId, originalTaskId, emailData) => {
   if (!emailData.followUp || !emailData.followUp.enabled) return;
 
-  const firestore = admin.firestore();
+  const firestore = admin.firestore;
   const followUpDate = new Date();
   followUpDate.setDate(followUpDate.getDate() + emailData.followUp.daysAfter);
 
