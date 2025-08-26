@@ -6,9 +6,9 @@ const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const Joi = require('joi');
 
 // Fix the Firebase Admin import
+// Fix the Firebase Admin import
 const firebaseAdminService = require('../services/firebaseAdmin');
-const { admin } = require('../services/firebaseAdmin');
-
+const db = firebaseAdminService.firestore; // Use the pre-initialized firestore instance
 
 
 // Validation schema
@@ -97,12 +97,12 @@ router.get('/scheduled', authenticateToken, async (req, res) => {
     console.log('=== /scheduled route called ===');
     const userId = req.user.uid;
     
-    if (!admin.firestore) {
+    if (!db) {
       console.error('Firestore is not initialized in admin');
       throw new Error('Firestore not initialized');
     }
-    
-    const snapshot = await admin.firestore
+
+    const snapshot = await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
@@ -147,7 +147,7 @@ router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
     const emailId = req.params.id;
     
     // Get the email document first to check if it exists
-    const emailDoc = await admin.firestore
+    const emailDoc = await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
@@ -174,7 +174,7 @@ router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
     }
     
     // Update the document status
-    await admin.firestore
+    await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
