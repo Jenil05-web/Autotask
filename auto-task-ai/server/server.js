@@ -3,6 +3,9 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
+const webhooksRouter = require('./routes/webhooks');
+const autoReplyRouter = require('./routes/autoReply');
+const autoReplyScheduler = require('./services/autoReplyScheduler');
 require('dotenv').config();
 
 // Import the Firebase Admin service (handles initialization properly)
@@ -14,6 +17,10 @@ const PORT = process.env.PORT || 5000;
 // Security middleware
 app.use(helmet());
 app.use(compression());
+app.use('/api/webhooks', webhooksRouter);
+app.use('/api/auto-reply', autoReplyRouter);
+
+autoReplyScheduler.start();
 
 // Logging middleware
 if (process.env.NODE_ENV !== 'production') {
@@ -93,6 +100,11 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  autoReplyScheduler.stop();
   process.exit(0);
 });
 

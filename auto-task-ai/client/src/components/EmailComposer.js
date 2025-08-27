@@ -27,14 +27,20 @@ import {
   AccordionDetails,
   RadioGroup,
   Radio,
-  FormLabel
+  FormLabel,
+  Alert,
+  Tooltip,
+  IconButton
 } from '@mui/material';
 import { 
   ExpandMore as ExpandMoreIcon,
   Schedule as ScheduleIcon,
   Email as EmailIcon,
   AutoAwesome as AutoAwesomeIcon,
-  Reply as ReplyIcon
+  Reply as ReplyIcon,
+  AccessTime as AccessTimeIcon,
+  Settings as SettingsIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import { emailAPI } from '../utils/api';
 
@@ -56,12 +62,27 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
       selectedDays: [] // New: for weekly recurring emails
     },
     followUp: { enabled: false, daysAfter: 3, message: '' },
+    
+    // ENHANCED: Updated auto-reply state structure with new features
     autoReply: { 
-      enabled: false, 
-      message: '', 
+      enabled: false,
+      replyType: 'standard',
+      aiTone: 'professional',
       useAI: true,
-      replyType: 'standard', // standard, out_of_office, custom
-      aiTone: 'professional' // professional, friendly, casual
+      customMessage: '',
+      template: '',
+      
+      // NEW: Add delay options
+      delayEnabled: false,
+      delayType: 'immediate', // immediate, minutes, hours, days
+      delayAmount: 0,
+      
+      // NEW: Add advanced settings
+      replyOnlyOnce: true, // Only reply once per thread
+      skipIfContainsKeywords: '', // Skip auto-reply if email contains these keywords
+      onlyDuringHours: false, // Only send during business hours
+      businessHoursStart: '09:00',
+      businessHoursEnd: '17:00'
     }
   });
 
@@ -117,9 +138,31 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
       autoReply: {
         ...prev.autoReply,
         replyType: type,
-        message: type !== 'custom' ? autoReplyTemplates[type] : ''
+        customMessage: type !== 'custom' ? autoReplyTemplates[type] : prev.autoReply.customMessage,
+        template: type !== 'custom' ? autoReplyTemplates[type] : prev.autoReply.template
       }
     }));
+  };
+
+  // NEW: Helper function to get maximum delay amount based on type
+  const getMaxDelayAmount = (delayType) => {
+    switch (delayType) {
+      case 'minutes': return 1440; // 24 hours in minutes
+      case 'hours': return 168; // 7 days in hours
+      case 'days': return 30; // 30 days
+      default: return 1;
+    }
+  };
+
+  // NEW: Helper function to convert delay to minutes
+  const convertDelayToMinutes = (delayType, delayAmount) => {
+    switch (delayType) {
+      case 'immediate': return 0;
+      case 'minutes': return delayAmount;
+      case 'hours': return delayAmount * 60;
+      case 'days': return delayAmount * 60 * 24;
+      default: return 0;
+    }
   };
 
   const validateForm = () => {
@@ -143,9 +186,30 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
       newErrors.recurringDays = 'Please select at least one day for weekly recurring emails';
     }
 
-    // Validate auto-reply settings
-    if (emailData.autoReply.enabled && emailData.autoReply.replyType === 'custom' && !emailData.autoReply.message.trim()) {
-      newErrors.autoReplyMessage = 'Custom auto-reply message is required';
+    // Enhanced auto-reply validation
+    if (emailData.autoReply.enabled) {
+      if (emailData.autoReply.replyType === 'custom' && !emailData.autoReply.customMessage.trim()) {
+        newErrors.autoReplyMessage = 'Custom auto-reply message is required';
+      }
+
+      // NEW: Validate delay settings
+      if (emailData.autoReply.delayEnabled && emailData.autoReply.delayType !== 'immediate') {
+        if (!emailData.autoReply.delayAmount || emailData.autoReply.delayAmount <= 0) {
+          newErrors.delayAmount = 'Delay amount must be greater than 0';
+        }
+        if (emailData.autoReply.delayAmount > getMaxDelayAmount(emailData.autoReply.delayType)) {
+          newErrors.delayAmount = `Maximum ${emailData.autoReply.delayType} is ${getMaxDelayAmount(emailData.autoReply.delayType)}`;
+        }
+      }
+
+      // NEW: Validate business hours
+      if (emailData.autoReply.onlyDuringHours) {
+        if (!emailData.autoReply.businessHoursStart || !emailData.autoReply.businessHoursEnd) {
+          newErrors.businessHours = 'Both start and end times are required for business hours';
+        } else if (emailData.autoReply.businessHoursStart >= emailData.autoReply.businessHoursEnd) {
+          newErrors.businessHours = 'End time must be after start time';
+        }
+      }
     }
 
     setErrors(newErrors);
@@ -166,7 +230,17 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
       personalization: emailData.personalization,
       recurring: emailData.recurring,
       followUp: emailData.followUp,
-      autoReply: emailData.autoReply
+      autoReply: {
+        ...emailData.autoReply,
+        // NEW: Convert delay to minutes for backend processing
+        delayMinutes: emailData.autoReply.delayEnabled 
+          ? convertDelayToMinutes(emailData.autoReply.delayType, emailData.autoReply.delayAmount)
+          : 0,
+        // NEW: Parse keywords into array
+        skipKeywords: emailData.autoReply.skipIfContainsKeywords
+          ? emailData.autoReply.skipIfContainsKeywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k)
+          : []
+      }
     };
 
     onSchedule(scheduleData);
@@ -196,7 +270,7 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
         </Box>
         
         <Grid container spacing={3}>
-          {/* Basic Email Fields */}
+          {/* Basic Email Fields - Unchanged */}
           <Grid item xs={12}>
             <Paper sx={{ p: 3, backgroundColor: '#f8f9fa', borderRadius: 2 }}>
               <Typography variant="h6" sx={{ mb: 2, color: '#4CAF50', fontWeight: 600 }}>
@@ -281,7 +355,7 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
             </Paper>
           </Grid>
 
-          {/* Scheduling Options */}
+          {/* Scheduling Options - Unchanged */}
           <Grid item xs={12}>
             <Accordion defaultExpanded sx={{ boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -395,17 +469,25 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
             </Accordion>
           </Grid>
 
-          {/* Auto-Reply Options */}
+          {/* ENHANCED: Auto-Reply Options with NEW Features */}
           <Grid item xs={12}>
             <Accordion sx={{ boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   <ReplyIcon sx={{ mr: 1, color: '#4CAF50' }} />
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>Auto-Reply Settings</Typography>
+                  {emailData.autoReply.enabled && (
+                    <Chip 
+                      label="Active" 
+                      size="small" 
+                      color="success" 
+                      sx={{ ml: 2 }} 
+                    />
+                  )}
                 </Box>
               </AccordionSummary>
               <AccordionDetails>
-                <Grid container spacing={2}>
+                <Grid container spacing={3}>
                   <Grid item xs={12}>
                     <FormControlLabel 
                       control={
@@ -421,82 +503,302 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
 
                   {emailData.autoReply.enabled && (
                     <>
+                      {/* Basic Auto-Reply Settings */}
                       <Grid item xs={12}>
-                        <FormControl component="fieldset">
-                          <FormLabel component="legend" sx={{ fontWeight: 600, mb: 1 }}>
-                            Auto-Reply Type
-                          </FormLabel>
-                          <RadioGroup
-                            value={emailData.autoReply.replyType}
-                            onChange={(e) => handleAutoReplyTypeChange(e.target.value)}
-                          >
-                            <FormControlLabel 
-                              value="standard" 
-                              control={<Radio sx={{ color: '#4CAF50', '&.Mui-checked': { color: '#4CAF50' } }} />} 
-                              label="Standard Response" 
-                            />
-                            <FormControlLabel 
-                              value="out_of_office" 
-                              control={<Radio sx={{ color: '#4CAF50', '&.Mui-checked': { color: '#4CAF50' } }} />} 
-                              label="Out of Office" 
-                            />
-                            <FormControlLabel 
-                              value="custom" 
-                              control={<Radio sx={{ color: '#4CAF50', '&.Mui-checked': { color: '#4CAF50' } }} />} 
-                              label="Custom Message" 
-                            />
-                          </RadioGroup>
-                        </FormControl>
+                        <Paper sx={{ p: 2, backgroundColor: '#f8f9fa', borderRadius: 1 }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2, color: '#4CAF50' }}>
+                            Basic Settings
+                          </Typography>
+                          
+                          <Grid container spacing={2}>
+                            <Grid item xs={12}>
+                              <FormControl component="fieldset">
+                                <FormLabel component="legend" sx={{ fontWeight: 600, mb: 1 }}>
+                                  Auto-Reply Type
+                                </FormLabel>
+                                <RadioGroup
+                                  value={emailData.autoReply.replyType}
+                                  onChange={(e) => handleAutoReplyTypeChange(e.target.value)}
+                                >
+                                  <FormControlLabel 
+                                    value="standard" 
+                                    control={<Radio sx={{ color: '#4CAF50', '&.Mui-checked': { color: '#4CAF50' } }} />} 
+                                    label="Standard Response" 
+                                  />
+                                  <FormControlLabel 
+                                    value="out_of_office" 
+                                    control={<Radio sx={{ color: '#4CAF50', '&.Mui-checked': { color: '#4CAF50' } }} />} 
+                                    label="Out of Office" 
+                                  />
+                                  <FormControlLabel 
+                                    value="custom" 
+                                    control={<Radio sx={{ color: '#4CAF50', '&.Mui-checked': { color: '#4CAF50' } }} />} 
+                                    label="Custom Message" 
+                                  />
+                                </RadioGroup>
+                              </FormControl>
+                            </Grid>
+
+                            <Grid item xs={12}>
+                              <TextField
+                                fullWidth
+                                multiline
+                                rows={4}
+                                label="Auto-Reply Message"
+                                value={emailData.autoReply.replyType === 'custom' ? emailData.autoReply.customMessage : emailData.autoReply.template}
+                                onChange={(e) => handleNestedChange('autoReply', 'customMessage', e.target.value)}
+                                error={!!errors.autoReplyMessage}
+                                helperText={errors.autoReplyMessage}
+                                disabled={emailData.autoReply.replyType !== 'custom'}
+                                sx={{ backgroundColor: 'white' }}
+                              />
+                            </Grid>
+
+                            <Grid item xs={12} md={6}>
+                              <FormControlLabel 
+                                control={
+                                  <Switch 
+                                    checked={emailData.autoReply.useAI} 
+                                    onChange={(e) => handleNestedChange('autoReply', 'useAI', e.target.checked)}
+                                    sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#4CAF50' } }}
+                                  />
+                                } 
+                                label={
+                                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                    <AutoAwesomeIcon sx={{ mr: 1, fontSize: 20 }} />
+                                    Use AI Enhancement
+                                  </Box>
+                                }
+                              />
+                            </Grid>
+
+                            {emailData.autoReply.useAI && (
+                              <Grid item xs={12} md={6}>
+                                <FormControl fullWidth>
+                                  <InputLabel>AI Tone</InputLabel>
+                                  <Select
+                                    value={emailData.autoReply.aiTone}
+                                    onChange={(e) => handleNestedChange('autoReply', 'aiTone', e.target.value)}
+                                    label="AI Tone"
+                                  >
+                                    <MenuItem value="professional">Professional</MenuItem>
+                                    <MenuItem value="friendly">Friendly</MenuItem>
+                                    <MenuItem value="casual">Casual</MenuItem>
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                            )}
+                          </Grid>
+                        </Paper>
                       </Grid>
 
+                      {/* NEW: Delay Settings */}
                       <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          multiline
-                          rows={4}
-                          label="Auto-Reply Message"
-                          value={emailData.autoReply.message}
-                          onChange={(e) => handleNestedChange('autoReply', 'message', e.target.value)}
-                          error={!!errors.autoReplyMessage}
-                          helperText={errors.autoReplyMessage}
-                          disabled={emailData.autoReply.replyType !== 'custom'}
-                        />
+                        <Paper sx={{ p: 2, backgroundColor: '#e3f2fd', borderRadius: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <AccessTimeIcon sx={{ mr: 1, color: '#1976d2' }} />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#1976d2' }}>
+                              Delay Settings
+                            </Typography>
+                            <Tooltip title="Add a delay before sending auto-replies to appear more natural">
+                              <IconButton size="small" sx={{ ml: 1 }}>
+                                <InfoIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                          
+                          <Grid container spacing={2}>
+                            <Grid item xs={12}>
+                              <FormControlLabel 
+                                control={
+                                  <Switch 
+                                    checked={emailData.autoReply.delayEnabled} 
+                                    onChange={(e) => handleNestedChange('autoReply', 'delayEnabled', e.target.checked)}
+                                    sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#1976d2' } }}
+                                  />
+                                } 
+                                label="Add delay before sending auto-reply" 
+                              />
+                            </Grid>
+
+                            {emailData.autoReply.delayEnabled && (
+                              <>
+                                <Grid item xs={12} md={6}>
+                                  <FormControl fullWidth>
+                                    <InputLabel>Delay Type</InputLabel>
+                                    <Select
+                                      value={emailData.autoReply.delayType}
+                                      onChange={(e) => handleNestedChange('autoReply', 'delayType', e.target.value)}
+                                      label="Delay Type"
+                                    >
+                                      <MenuItem value="immediate">Immediate</MenuItem>
+                                      <MenuItem value="minutes">Minutes</MenuItem>
+                                      <MenuItem value="hours">Hours</MenuItem>
+                                      <MenuItem value="days">Days</MenuItem>
+                                    </Select>
+                                  </FormControl>
+                                </Grid>
+                                
+                                {emailData.autoReply.delayType !== 'immediate' && (
+                                  <Grid item xs={12} md={6}>
+                                    <TextField
+                                      fullWidth
+                                      type="number"
+                                      label="Delay Amount"
+                                      value={emailData.autoReply.delayAmount}
+                                      onChange={(e) => handleNestedChange('autoReply', 'delayAmount', parseInt(e.target.value) || 0)}
+                                      error={!!errors.delayAmount}
+                                      helperText={errors.delayAmount || `Enter ${emailData.autoReply.delayType}`}
+                                      inputProps={{ 
+                                        min: 1, 
+                                        max: getMaxDelayAmount(emailData.autoReply.delayType) 
+                                      }}
+                                      placeholder={`Enter ${emailData.autoReply.delayType}`}
+                                    />
+                                  </Grid>
+                                )}
+
+                                {emailData.autoReply.delayType !== 'immediate' && emailData.autoReply.delayAmount > 0 && (
+                                  <Grid item xs={12}>
+                                    <Alert severity="info" sx={{ mt: 1 }}>
+                                      Auto-reply will be sent after {emailData.autoReply.delayAmount} {emailData.autoReply.delayType}
+                                    </Alert>
+                                  </Grid>
+                                )}
+                              </>
+                            )}
+                          </Grid>
+                        </Paper>
                       </Grid>
 
+                      {/* NEW: Advanced Settings */}
                       <Grid item xs={12}>
-                        <FormControlLabel 
-                          control={
-                            <Switch 
-                              checked={emailData.autoReply.useAI} 
-                              onChange={(e) => handleNestedChange('autoReply', 'useAI', e.target.checked)}
-                              sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#4CAF50' } }}
-                            />
-                          } 
-                          label={
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              <AutoAwesomeIcon sx={{ mr: 1, fontSize: 20 }} />
-                              Use AI Enhancement
-                            </Box>
-                          }
-                        />
+                        <Paper sx={{ p: 2, backgroundColor: '#fff3e0', borderRadius: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <SettingsIcon sx={{ mr: 1, color: '#f57c00' }} />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#f57c00' }}>
+                              Advanced Settings
+                            </Typography>
+                          </Box>
+                          
+                          <Grid container spacing={2}>
+                            <Grid item xs={12}>
+                              <FormControlLabel 
+                                control={
+                                  <Checkbox 
+                                    checked={emailData.autoReply.replyOnlyOnce} 
+                                    onChange={(e) => handleNestedChange('autoReply', 'replyOnlyOnce', e.target.checked)}
+                                    sx={{ color: '#f57c00', '&.Mui-checked': { color: '#f57c00' } }}
+                                  />
+                                } 
+                                label="Only reply once per email thread" 
+                              />
+                            </Grid>
+
+                            <Grid item xs={12}>
+                              <TextField
+                                fullWidth
+                                label="Skip auto-reply if email contains these keywords"
+                                value={emailData.autoReply.skipIfContainsKeywords}
+                                onChange={(e) => handleNestedChange('autoReply', 'skipIfContainsKeywords', e.target.value)}
+                                placeholder="urgent, meeting, call, etc."
+                                helperText="Separate keywords with commas. Auto-reply will be skipped if email contains any of these."
+                                sx={{ backgroundColor: 'white' }}
+                              />
+                            </Grid>
+
+                            <Grid item xs={12}>
+                              <FormControlLabel 
+                                control={
+                                  <Checkbox 
+                                    checked={emailData.autoReply.onlyDuringHours} 
+                                    onChange={(e) => handleNestedChange('autoReply', 'onlyDuringHours', e.target.checked)}
+                                    sx={{ color: '#f57c00', '&.Mui-checked': { color: '#f57c00' } }}
+                                  />
+                                } 
+                                label="Only send during business hours" 
+                              />
+                            </Grid>
+
+                            {emailData.autoReply.onlyDuringHours && (
+                              <>
+                                <Grid item xs={12} md={6}>
+                                  <TextField
+                                    fullWidth
+                                    type="time"
+                                    label="Start Time"
+                                    value={emailData.autoReply.businessHoursStart}
+                                    onChange={(e) => handleNestedChange('autoReply', 'businessHoursStart', e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                    sx={{ backgroundColor: 'white' }}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                  <TextField
+                                    fullWidth
+                                    type="time"
+                                    label="End Time"
+                                    value={emailData.autoReply.businessHoursEnd}
+                                    onChange={(e) => handleNestedChange('autoReply', 'businessHoursEnd', e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                    sx={{ backgroundColor: 'white' }}
+                                  />
+                                </Grid>
+
+                                {errors.businessHours && (
+                                  <Grid item xs={12}>
+                                    <Alert severity="error">
+                                      {errors.businessHours}
+                                    </Alert>
+                                  </Grid>
+                                )}
+
+                                <Grid item xs={12}>
+                                  <Alert severity="info">
+                                    Auto-replies will only be sent between {emailData.autoReply.businessHoursStart} and {emailData.autoReply.businessHoursEnd}. 
+                                    Outside these hours, emails will be queued for the next business day.
+                                  </Alert>
+                                </Grid>
+                              </>
+                            )}
+                          </Grid>
+                        </Paper>
                       </Grid>
 
-                      {emailData.autoReply.useAI && (
-                        <Grid item xs={12} md={6}>
-                          <FormControl fullWidth>
-                            <InputLabel>AI Tone</InputLabel>
-                            <Select
-                              value={emailData.autoReply.aiTone}
-                              onChange={(e) => handleNestedChange('autoReply', 'aiTone', e.target.value)}
-                              label="AI Tone"
-                            >
-                              <MenuItem value="professional">Professional</MenuItem>
-                              <MenuItem value="friendly">Friendly</MenuItem>
-                              <MenuItem value="casual">Casual</MenuItem>
-                            </Select>
-                          </FormControl>
-                        </Grid>
-                      )}
+                      {/* NEW: Auto-Reply Summary */}
+                      <Grid item xs={12}>
+                        <Paper sx={{ p: 2, backgroundColor: '#e8f5e8', borderRadius: 1, border: '1px solid #4CAF50' }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#2e7d32' }}>
+                            📋 Auto-Reply Configuration Summary
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            <Typography variant="body2">
+                              <strong>Type:</strong> {emailData.autoReply.replyType === 'standard' ? 'Standard Response' : 
+                                                     emailData.autoReply.replyType === 'out_of_office' ? 'Out of Office' : 'Custom Message'}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>AI Enhanced:</strong> {emailData.autoReply.useAI ? `Yes (${emailData.autoReply.aiTone} tone)` : 'No'}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Delay:</strong> {emailData.autoReply.delayEnabled ? 
+                                (emailData.autoReply.delayType === 'immediate' ? 'Immediate' : 
+                                 `${emailData.autoReply.delayAmount} ${emailData.autoReply.delayType}`) : 'Immediate'}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Reply Once:</strong> {emailData.autoReply.replyOnlyOnce ? 'Yes' : 'No'}
+                            </Typography>
+                            {emailData.autoReply.skipIfContainsKeywords && (
+                              <Typography variant="body2">
+                                <strong>Skip Keywords:</strong> {emailData.autoReply.skipIfContainsKeywords}
+                              </Typography>
+                            )}
+                            <Typography variant="body2">
+                              <strong>Business Hours Only:</strong> {emailData.autoReply.onlyDuringHours ? 
+                                `Yes (${emailData.autoReply.businessHoursStart} - ${emailData.autoReply.businessHoursEnd})` : 'No'}
+                            </Typography>
+                          </Box>
+                        </Paper>
+                      </Grid>
                     </>
                   )}
                 </Grid>
@@ -552,6 +854,30 @@ const EmailComposer = ({ onSchedule, onCancel }) => {
         <DialogTitle>Email Preview</DialogTitle>
         <DialogContent>
           <Typography variant="body1">Preview functionality can be implemented here.</Typography>
+          
+          {/* NEW: Show auto-reply preview if enabled */}
+          {emailData.autoReply.enabled && (
+            <Box sx={{ mt: 3 }}>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="h6" sx={{ mb: 1 }}>Auto-Reply Preview:</Typography>
+              <Paper sx={{ p: 2, backgroundColor: '#f5f5f5' }}>
+                <Typography variant="body2" sx={{ fontStyle: 'italic', mb: 1 }}>
+                  {emailData.autoReply.delayEnabled && emailData.autoReply.delayType !== 'immediate' && 
+                   `[Will be sent after ${emailData.autoReply.delayAmount} ${emailData.autoReply.delayType}]`}
+                </Typography>
+                <Typography variant="body1">
+                  {emailData.autoReply.replyType === 'custom' ? 
+                   emailData.autoReply.customMessage : 
+                   emailData.autoReply.template}
+                </Typography>
+                {emailData.autoReply.useAI && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#666' }}>
+                    * Message will be enhanced with AI using {emailData.autoReply.aiTone} tone
+                  </Typography>
+                )}
+              </Paper>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPreviewOpen(false)}>Close</Button>

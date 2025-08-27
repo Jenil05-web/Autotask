@@ -1,7 +1,7 @@
 const express = require('express');
 const admin = require('firebase-admin');
 const router = express.Router();
-const { scheduleNewEmail, cancelScheduledEmail, rescheduleEmail } = require('../services/emailScheduler');
+const { scheduleNewEmail, cancelEmailTask, rescheduleEmail } = require('../services/emailScheduler');
 const emailService = require('../services/emailService');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const Joi = require('joi');
@@ -142,6 +142,7 @@ router.get('/scheduled', authenticateToken, async (req, res) => {
 
 // Cancel a scheduled email - UPDATED TO PROPERLY CANCEL
 // Cancel a scheduled email - UPDATED TO PROPERLY CANCEL
+// Cancel a scheduled email - CORRECTED VERSION
 router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
   try {
     console.log('=== DELETE /scheduled/:id route called ===');
@@ -168,24 +169,23 @@ router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
     // Cancel the scheduled task if it exists
     if (emailData.status === 'scheduled') {
       try {
-        await cancelScheduledEmail(userId, emailId, emailData);
+        await cancelEmailTask(userId, emailId); // Fixed function name
       } catch (cancelError) {
         console.error('Error cancelling scheduled task:', cancelError);
         // Continue with status update even if task cancellation fails
       }
     }
     
-    // Update the document status - FIX: Use firebaseAdminService admin reference
-   // Update the document status
-await db
-  .collection('users')
-  .doc(userId)
-  .collection('scheduledEmails')
-  .doc(emailId)
-  .update({
-    status: 'cancelled',
-cancelledAt: db.FieldValue.serverTimestamp()
-  });
+    // Update the document status - Fixed Firestore reference
+    await db
+      .collection('users')
+      .doc(userId)
+      .collection('scheduledEmails')
+      .doc(emailId)
+      .update({
+        status: 'cancelled',
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp() // Fixed reference
+      });
     
     console.log('Email cancelled successfully');
     res.status(200).json({
