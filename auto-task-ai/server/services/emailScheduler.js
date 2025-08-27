@@ -12,7 +12,7 @@ const activeCronJobs = new Map();
  * @returns {object} - The newly created task data.
  */
 const scheduleNewEmail = async (userId, emailData) => {
-  const firestore = admin.firestore();
+  const firestore = admin.firestore;
   
   try {
     // 1. Save the email task to a user-specific subcollection in Firestore
@@ -281,7 +281,7 @@ const calculateNextRun = (recurringConfig) => {
  * Cancels a scheduled email task
  */
 const cancelEmailTask = async (userId, taskId) => {
-  const firestore = admin.firestore();
+  const firestore = admin.firestore;
   
   try {
     // Update status in Firestore
@@ -308,7 +308,7 @@ const cancelEmailTask = async (userId, taskId) => {
  * Gets all scheduled emails for a user
  */
 const getUserScheduledEmails = async (userId) => {
-  const firestore = admin.firestore();
+  const firestore = admin.firestore;
   
   try {
     const snapshot = await firestore
@@ -334,7 +334,7 @@ const getUserScheduledEmails = async (userId) => {
  * Updates an existing scheduled email task
  */
 const updateEmailTask = async (userId, taskId, updateData) => {
-  const firestore = admin.firestore();
+  const firestore = admin.firestore;
   
   try {
     // Cancel the existing cron job
@@ -373,7 +373,7 @@ const updateEmailTask = async (userId, taskId, updateData) => {
  * Initialize scheduler - restore cron jobs from database on server restart
  */
 const initializeScheduler = async () => {
-  const firestore = admin.firestore();
+  const firestore = admin.firestore;
   console.log('🚀 Initializing email scheduler...');
 
   try {
