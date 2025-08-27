@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
-const admin = require('../services/firebaseAdmin');
-const gmailWatchService = require('../services/gmailWatchService');
-const db = admin.firestore();
+const firebaseService = require('../services/firebaseAdmin');
+const gmailWatchService = require('../services/gmailwatchservice');
+const db = firebaseService.db;
 
 // Get auto-reply settings
 router.get('/settings', authenticateToken, async (req, res) => {
@@ -59,8 +59,8 @@ router.post('/settings', authenticateToken, async (req, res) => {
     batch.set(newSettingsRef, {
       ...settings,
       isActive: true,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  createdAt: firebaseService.admin.firestore.FieldValue.serverTimestamp(),
+updatedAt: firebaseService.admin.firestore.FieldValue.serverTimestamp()
     });
 
     await batch.commit();

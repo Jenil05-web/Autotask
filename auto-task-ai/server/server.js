@@ -1,12 +1,12 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const webhooksRouter = require('./routes/webhooks');
-const autoReplyRouter = require('./routes/autoReply');
-const autoReplyScheduler = require('./services/autoReplyScheduler');
-require('dotenv').config();
+const autoReplyRouter = require('./routes/autoreply');
+const autoReplyScheduler = require('./services/autoreplyscheduler');
 
 // Import the Firebase Admin service (handles initialization properly)
 const firebaseAdmin = require('./services/firebaseAdmin');

@@ -1,6 +1,6 @@
 const { google } = require('googleapis');
-const admin = require('./firebaseAdmin');
-const db = admin.firestore();
+const firebaseService = require('./firebaseAdmin');
+const db = firebaseService.db;
 const { v4: uuidv4 } = require('uuid');
 
 class GmailWatchService {
@@ -615,4 +615,4 @@ class GmailWatchService {
   }
 }
 
-module.exports = new GmailWatchService();
+module.exports = new GmailWatchService();   

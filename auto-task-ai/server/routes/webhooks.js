@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const gmailWatchService = require('../services/gmailWatchService');
-const admin = require('../config/firebaseAdmin'); // Adjust path as needed
+const firebaseService = require('../services/firebaseAdmin');
 const { google } = require('googleapis');
 
 // Middleware for webhook verification (if using Pub/Sub)
@@ -151,7 +151,7 @@ router.post('/gmail', verifyWebhook, async (req, res) => {
  */
 async function findUserByEmail(email) {
   try {
-    const usersRef = admin.firestore().collection('users');
+    const usersRef = firebaseService.db.collection('users');
     const querySnapshot = await usersRef
       .where('email', '==', email)
       .where('gmailWatch.isActive', '==', true)
@@ -186,7 +186,7 @@ async function findUserByEmail(email) {
 async function processHistoryChanges(userId, historyId, userEmail) {
   try {
     // Get user's Gmail tokens
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+   const userDoc = await firebaseService.db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
       throw new Error('User document not found');
     }
@@ -252,7 +252,7 @@ async function processHistoryChanges(userId, historyId, userEmail) {
     }
 
     // Update user's history ID
-    await admin.firestore().collection('users').doc(userId).update({
+   await firebaseService.db.collection('users').doc(userId).update({
       'gmailWatch.historyId': historyId,
       'gmailWatch.lastWebhookReceived': admin.firestore.FieldValue.serverTimestamp()
     });
@@ -268,7 +268,7 @@ async function processHistoryChanges(userId, historyId, userEmail) {
  */
 async function logWebhookActivity(userId, webhookData, status, errorMessage = null) {
   try {
-    await admin.firestore()
+    await admin.db
       .collection('users')
       .doc(userId)
       .collection('webhookLogs')
@@ -277,7 +277,7 @@ async function logWebhookActivity(userId, webhookData, status, errorMessage = nu
         historyId: webhookData?.historyId,
         status: status,
         error: errorMessage,
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+       timestamp: firebaseService.admin.firestore.FieldValue.serverTimestamp(),
         processingTime: Date.now() // You can calculate actual processing time if needed
       });
   } catch (error) {

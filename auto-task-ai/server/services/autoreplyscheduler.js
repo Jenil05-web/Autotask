@@ -104,8 +104,8 @@ class AutoReplyScheduler {
     try {
       this._validateInputs(userId, emailData, delayMinutes, settings);
 
-      const admin = require('./firebaseAdmin');
-      const db = admin.firestore();
+     const firebaseAdmin = require('./firebaseAdmin');
+const db = firebaseAdmin.db; // Use the db property from the service
       
       const scheduledTime = new Date();
       scheduledTime.setMinutes(scheduledTime.getMinutes() + delayMinutes);

@@ -1,6 +1,6 @@
 const OpenAI = require('openai');
-const admin = require('../config/firebaseAdmin'); // Adjust path as needed
-const db = admin.firestore();
+const firebaseService = require('./firebaseAdmin');
+const db = firebaseService.db;
 
 class AIReplyService {
   constructor() {
@@ -317,7 +317,7 @@ Personalized Email:`;
         await queueDoc.ref.update({ 
           status: 'cancelled', 
           reason: 'No active auto-reply settings found',
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+         updatedAt: firebaseService.admin.firestore.FieldValue.serverTimestamp()
         });
         return;
       }
@@ -331,7 +331,7 @@ Personalized Email:`;
         await queueDoc.ref.update({
           status: 'cancelled',
           reason: 'Duplicate reply detected',
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: firebaseService.admin.firestore.FieldValue.serverTimestamp()
         });
         return;
       }
@@ -384,7 +384,7 @@ Personalized Email:`;
         // Update queue status to sent
         await queueDoc.ref.update({ 
           status: 'sent',
-          sentAt: admin.firestore.FieldValue.serverTimestamp(),
+       sentAt: firebaseService.admin.firestore.FieldValue.serverTimestamp(),
           messageId: sendResult.messageId,
           metadata: replyMetadata
         });
@@ -424,7 +424,8 @@ Personalized Email:`;
           status: 'failed', 
           error: error.message,
           retryCount: retryCount,
-          failedAt: admin.firestore.FieldValue.serverTimestamp()
+       failedAt: firebaseService.admin.firestore.FieldValue.serverTimestamp(),
+       retryCount: firebaseService.admin.firestore.FieldValue.increment(1)
         });
       }
       
