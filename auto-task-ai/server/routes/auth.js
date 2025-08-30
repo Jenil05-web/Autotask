@@ -133,7 +133,7 @@ async function setupGmailWatch(userId, refreshToken) {
     await db.collection('users').doc(userId).update({
       'gmailWatch.historyId': watchResponse.data.historyId,
       'gmailWatch.expiration': new Date(parseInt(watchResponse.data.expiration)),
-      'gmailWatch.setupAt': firebaseAdminService.getFieldValue().serverTimestamp(),
+      'gmailWatch.setupAt': admin.firestore.FieldValue.serverTimestamp(),
       'gmailWatch.status': 'active'
     });
     
@@ -147,7 +147,7 @@ async function setupGmailWatch(userId, refreshToken) {
     await db.collection('users').doc(userId).update({
       'gmailWatch.status': 'failed',
       'gmailWatch.error': watchError.message,
-      'gmailWatch.lastAttempt': firebaseAdminService.getFieldValue().serverTimestamp()
+      'gmailWatch.lastAttempt': admin.firestore.FieldValue().serverTimestamp()
     });
     
     throw watchError;
@@ -210,8 +210,8 @@ router.get('/google/callback', async (req, res) => {
       googleRefreshToken: tokens.refresh_token,
       googleEmail: userInfo.data.email,
       googleConnected: true,
-      googleConnectedAt: firebaseAdminService.getFieldValue().serverTimestamp(),
-      updatedAt: firebaseAdminService.getFieldValue().serverTimestamp()
+      googleConnectedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
     
     // Set up Gmail watch - YOUR EXACT CODE INTEGRATION
@@ -247,7 +247,7 @@ router.get('/google/callback', async (req, res) => {
       await db.collection('users').doc(userId).update({
         'gmailWatch.historyId': watchResponse.data.historyId,
         'gmailWatch.expiration': new Date(parseInt(watchResponse.data.expiration)),
-        'gmailWatch.setupAt': firebaseAdminService.getFieldValue().serverTimestamp()
+        'gmailWatch.setupAt': admin.firestore.FieldValue.serverTimestamp()
       });
       
       console.log('✅ Gmail watch configuration saved');
@@ -276,7 +276,7 @@ router.get('/google/callback', async (req, res) => {
           signature: 'Best regards',
           replyToAll: false,
           allowMultipleReplies: false,
-          createdAt: firebaseAdminService.getFieldValue().serverTimestamp()
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
         console.log('✅ Default auto-reply settings created');
       }
@@ -356,8 +356,8 @@ router.post('/test-manual-autoreply/:userId', async (req, res) => {
         emailData: testEmail,
         status: 'pending',
         priority: 'normal',
-        createdAt: firebaseAdminService.getFieldValue().serverTimestamp(),
-        scheduledFor: firebaseAdminService.getFieldValue().serverTimestamp(),
+        createdAt: admin.firestore.FieldValue().serverTimestamp(),
+        scheduledFor: admin.firestore.FieldValue().serverTimestamp(),
         retryCount: 0,
         maxRetries: 3,
         userId: userId
@@ -432,60 +432,79 @@ router.post('/gmail-watch/retry/:userId', authenticateToken, async (req, res) =>
 });
 
 // Check Google connection status
+// Gmail connection status endpoint - ADD THIS
 router.get('/google/status', authenticateToken, async (req, res) => {
   try {
+    console.log('🔍 Checking Gmail status for user:', req.user.uid);
+    
     const userId = req.user.uid;
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userDoc = await db.collection('users').doc(userId).get();
     
     if (!userDoc.exists) {
-        return res.status(404).json({ success: false, error: 'User not found' });
+      return res.json({
+        success: true,
+        connected: false,
+        email: null,
+        message: 'User not found'
+      });
     }
-
+    
     const userData = userDoc.data();
-    const isConnected = !!(userData?.googleRefreshToken && userData?.googleConnected);
+    const isConnected = !!(userData.googleConnected && userData.googleRefreshToken);
+    
+    console.log('✅ Gmail status check result:', {
+      connected: isConnected,
+      email: userData.googleEmail,
+      hasRefreshToken: !!userData.googleRefreshToken
+    });
     
     res.json({
       success: true,
       connected: isConnected,
-      email: userData?.googleEmail || null,
-      connectedAt: userData?.googleConnectedAt || null,
-      gmailWatch: userData?.gmailWatch || null
+      email: userData.googleEmail || null,
+      connectedAt: userData.googleConnectedAt?.toDate?.()?.toISOString() || null
     });
+    
   } catch (error) {
-    console.error('Error checking Google status:', error);
+    console.error('❌ Error checking Gmail status:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to check Google connection status'
+      error: error.message,
+      connected: false,
+      email: null
     });
   }
 });
 
 // Disconnect Google account
+// Gmail disconnect endpoint - ADD THIS
 router.delete('/google/disconnect', authenticateToken, async (req, res) => {
   try {
+    console.log('🔍 Disconnecting Gmail for user:', req.user.uid);
+    
     const userId = req.user.uid;
     
-    // Remove Google tokens from Firestore
-    await admin.firestore().collection('users').doc(userId).update({
-      googleRefreshToken: firebaseAdminService.getFieldValue().delete(),
-      googleEmail: firebaseAdminService.getFieldValue().delete(),
+    // Remove Gmail tokens and connection status
+    await db.collection('users').doc(userId).update({
+      googleRefreshToken: admin.firestore.FieldValue.delete(),
+      googleAccessToken: admin.firestore.FieldValue.delete(),
+      googleEmail: admin.firestore.FieldValue.delete(),
       googleConnected: false,
-      gmailWatch: firebaseAdminService.getFieldValue().delete(),
-      googleDisconnectedAt: firebaseAdminService.getFieldValue().serverTimestamp(),
-      updatedAt: firebaseAdminService.getFieldValue().serverTimestamp()
+      googleDisconnectedAt: admin.firestore.FieldValue.serverTimestamp()
     });
     
-    console.log('Google account disconnected for user:', userId);
+    console.log('✅ Gmail disconnected successfully');
     
     res.json({
       success: true,
       message: 'Gmail account disconnected successfully'
     });
+    
   } catch (error) {
-    console.error('Error disconnecting Google account:', error);
+    console.error('❌ Error disconnecting Gmail:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to disconnect Google account'
+      error: error.message
     });
   }
 });
