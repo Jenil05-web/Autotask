@@ -1,0 +1,161 @@
+/* --- Modern & Minimalist Navbar --- */
+
+/* General Navbar Style */
+.navbar {
+  background: rgba(10, 10, 15, 0.7); /* Darker, less distracting background */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px); /* For Safari */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1); /* Subtle border */
+  position: fixed;
+  top: 0;
+  width: 100%;
+  z-index: 1000;
+  transition: background 0.3s ease;
+}
+
+.navbar-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2.5rem; /* Increased padding for more space */
+  max-width: 1300px; /* Slightly wider for modern screens */
+  margin: 0 auto;
+}
+
+/* Logo Styling */
+.navbar-logo {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: #ffffff;
+  font-size: 1.4rem;
+  font-weight: 600; /* Slightly less bold for a sleeker look */
+  transition: opacity 0.3s ease;
+}
+
+.navbar-logo:hover {
+  opacity: 0.8;
+}
+
+.logo-icon {
+  font-size: 1.8rem;
+  margin-right: 0.75rem;
+  color: #4A90E2; /* A modern, sleek blue accent */
+}
+
+/* Menu and Links */
+.navbar-menu {
+  display: flex;
+  align-items: center;
+  gap: 2.5rem; /* More spacing between links */
+}
+
+.nav-link {
+  color: #d1d1d1; /* Softer white for easier reading */
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.3s ease;
+  position: relative;
+  padding-bottom: 5px; /* Add padding for the underline effect */
+}
+
+.nav-link:hover {
+  color: #ffffff;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 2px;
+  bottom: 0; /* Position underline right below the text */
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #4A90E2; /* Use the same accent color */
+  transition: width 0.3s ease;
+}
+
+.nav-link:hover::after {
+  width: 100%;
+}
+
+/* Buttons */
+.nav-button {
+  padding: 0.6rem 1.2rem;
+  border: 1px solid transparent; /* Set up for transparent button border */
+  border-radius: 8px; /* Slightly more rounded corners */
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 0.9rem;
+}
+
+.nav-button.register {
+  background-color: #4A90E2;
+  color: white;
+}
+
+.nav-button.register:hover {
+  background-color: #357ABD; /* Darker blue on hover */
+  transform: translateY(-2px);
+}
+
+.nav-button.logout {
+  background: transparent;
+  color: #d1d1d1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.nav-button.logout:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+}
+
+/* Mobile Responsive */
+.navbar-toggle {
+  display: none;
+  flex-direction: column;
+  cursor: pointer;
+  gap: 5px; /* Increased gap for a cleaner look */
+  padding: 5px;
+}
+
+.bar {
+  width: 25px;
+  height: 2px; /* Thinner bars for a sleek look */
+  background-color: white;
+  transition: all 0.3s ease-in-out;
+  border-radius: 2px;
+}
+
+@media (max-width: 768px) {
+  .navbar-toggle {
+    display: flex;
+  }
+
+  .navbar-container {
+    padding: 1rem 1.5rem;
+  }
+
+  .navbar-menu {
+    position: fixed;
+    left: 0;
+    top: 65px; /* Adjust based on navbar height */
+    flex-direction: column;
+    background: rgba(15, 15, 20, 0.95); /* Darker for better contrast */
+    backdrop-filter: blur(20px);
+    width: 100%;
+    height: calc(100vh - 65px);
+    padding-top: 3rem;
+    gap: 2rem;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-in-out;
+  }
+
+  .navbar-menu.active {
+    transform: translateX(0);
+  }
+}

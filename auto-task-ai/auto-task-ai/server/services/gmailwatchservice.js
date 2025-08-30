@@ -1,6 +1,6 @@
+const admin = require('firebase-admin');
 const { google } = require('googleapis');
 const firebaseService = require('./firebaseAdmin');
-const admin = require('firebase-admin'); // Add this line
 const db = firebaseService.db;
 const { v4: uuidv4 } = require('uuid');
 
@@ -10,55 +10,8 @@ class GmailWatchService {
     this.activeWatchers = new Map();
     this.rateLimitCache = new Map(); // For rate limiting
     this.watchExpirationBuffer = 24 * 60 * 60 * 1000; // 24 hours before expiration
-    
   }
 
-  async processHistoryChanges(userId, historyId, accessToken, refreshToken) {
-  try {
-    console.log('🔍 Processing history changes for user:', userId);
-    console.log('🔍 History ID:', historyId);
-
-    const gmail = await this.initializeGmail(accessToken, refreshToken);
-    
-    // Get user's last processed history ID
-    const userDoc = await db.collection('users').doc(userId).get();
-    const userData = userDoc.data();
-    const startHistoryId = userData.gmailWatch?.historyId || historyId;
-
-    console.log('🔍 Start history ID:', startHistoryId);
-
-    // Get history changes
-    const historyResponse = await gmail.users.history.list({
-      userId: 'me',
-      startHistoryId: startHistoryId,
-      labelId: 'INBOX'
-    });
-
-    const history = historyResponse.data.history || [];
-    console.log('🔍 History changes found:', history.length);
-
-    for (const historyItem of history) {
-      if (historyItem.messagesAdded) {
-        for (const messageAdded of historyItem.messagesAdded) {
-          const messageId = messageAdded.message.id;
-          console.log('🔍 Processing new message:', messageId);
-          
-          await this.processIncomingEmail(userId, messageId, historyItem.id);
-        }
-      }
-    }
-
-    // Update the last processed history ID
-    await db.collection('users').doc(userId).update({
-      'gmailWatch.historyId': historyId,
-      'gmailWatch.lastActivity': admin.firestore.FieldValue.serverTimestamp()
-    });
-
-  } catch (error) {
-    console.error('❌ Error processing history changes:', error);
-    throw error;
-  }
-}
   /**
    * Initialize Gmail API client with OAuth2 credentials
    */
@@ -368,67 +321,43 @@ class GmailWatchService {
    * Enhanced auto-reply queuing with delay and scheduling options
    */
   async queueAutoReply(userId, email) {
-  try {
-    console.log('🔍 CRITICAL DEBUG: queueAutoReply called for user:', userId);
-    console.log('🔍 Email from:', email.from);
-    console.log('🔍 Email subject:', email.subject);
+    try {
+      // Get auto-reply settings for delay configuration
+      const settingsSnapshot = await db
+        .collection('users')
+        .doc(userId)
+        .collection('autoReplySettings')
+        .where('isActive', '==', true)
+        .get();
 
-    // Get auto-reply settings for delay configuration
-    const settingsSnapshot = await db
-      .collection('users')
-      .doc(userId)
-      .collection('autoReplySettings')
-      .where('isActive', '==', true)
-      .get();
+      const settings = settingsSnapshot.docs[0]?.data() || {};
+      const delay = settings.replyDelay || 0; // Default: immediate
+      const scheduledFor = new Date(Date.now() + (delay * 1000));
 
-    console.log('🔍 Settings found:', !settingsSnapshot.empty);
+      await db
+        .collection('users')
+        .doc(userId)
+        .collection('autoReplyQueue')
+        .add({
+          emailData: email,
+          status: 'pending',
+          priority: email.subject.toLowerCase().includes('urgent') ? 'high' : 'normal',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          scheduledFor: admin.firestore.Timestamp.fromDate(scheduledFor),
+          retryCount: 0,
+          maxRetries: 3,
+          settings: {
+            template: settings.template || 'default',
+            signature: settings.signature || '',
+            replyToAll: settings.replyToAll || false
+          }
+        });
 
-    const settings = settingsSnapshot.docs[0]?.data() || {};
-    const delay = settings.replyDelay || 0; // Default: immediate
-    const scheduledFor = new Date(Date.now() + (delay * 1000));
-
-    console.log('🔍 Creating queue document...');
-
-    const queueData = {
-      emailData: email,
-      originalEmail: email, // Add for backward compatibility
-      status: 'pending',
-      priority: email.subject.toLowerCase().includes('urgent') ? 'high' : 'normal',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      scheduledFor: admin.firestore.Timestamp.fromDate(scheduledFor),
-      retryCount: 0,
-      maxRetries: 3,
-      userId: userId,
-      settings: {
-        template: settings.template || 'default',
-        signature: settings.signature || '',
-        replyToAll: settings.replyToAll || false,
-        useAI: settings.useAI || false
-      }
-    };
-
-    console.log('🔍 Queue data prepared:', {
-      status: queueData.status,
-      scheduledFor: scheduledFor.toISOString(),
-      hasEmailData: !!queueData.emailData
-    });
-
-    const docRef = await db
-      .collection('users')
-      .doc(userId)
-      .collection('autoReplyQueue')
-      .add(queueData);
-
-    console.log('✅ SUCCESSFULLY queued auto-reply:', docRef.id);
-    console.log('✅ Auto-reply queued for user', userId, 'scheduled for', scheduledFor);
-    
-    return docRef;
-  } catch (error) {
-    console.error('❌ CRITICAL ERROR in queueAutoReply:', error);
-    console.error('❌ Error stack:', error.stack);
-    throw error;
+      console.log(`Auto-reply queued for user ${userId}, scheduled for ${scheduledFor}`);
+    } catch (error) {
+      console.error('Error queuing auto-reply:', error);
+    }
   }
-}
 
   // Helper methods
 

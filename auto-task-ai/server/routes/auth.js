@@ -4,6 +4,7 @@ console.log('--- Verifying Environment Variables ---');
 console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
 console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
 console.log('GOOGLE_REDIRECT_URI:', process.env.GOOGLE_REDIRECT_URI);
+console.log('GOOGLE_CLOUD_PROJECT_ID:', process.env.GOOGLE_CLOUD_PROJECT_ID);
 console.log('------------------------------------');
 
 const express = require('express');
@@ -11,7 +12,9 @@ const router = express.Router();
 const { google } = require('googleapis');
 const { authenticateToken } = require('../middleware/auth');
 const firebaseAdminService = require('../services/firebaseAdmin');
-const admin = firebaseAdminService.admin;
+const admin = require('firebase-admin'); // Add this line
+// Use the service instance
+const db = firebaseAdminService.db;
 
 // Initialize OAuth2 client
 // This will now have access to the environment variables
@@ -36,17 +39,17 @@ router.get('/google/url', authenticateToken, (req, res) => {
       access_type: 'offline',
       prompt: 'consent', // Force refresh token
       scope: [
-          'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.modify',     // ✅ Add this - broader Gmail access
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile'       
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/gmail.modify',     // ✅ Add this - broader Gmail access
+        'https://www.googleapis.com/auth/gmail.readonly',   // ✅ Add this for reading emails
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile'       
       ],
       state: state
     });
     console.log('--- GENERATED GOOGLE AUTH URL ---');
     console.log(authUrl);
     console.log('---------------------------------');
-    
     
     console.log('OAuth URL generated successfully');
     res.json({
@@ -62,6 +65,94 @@ router.get('/google/url', authenticateToken, (req, res) => {
     });
   }
 });
+
+// Check Gmail watch status endpoint - ALREADY IMPLEMENTED CORRECTLY
+router.get('/gmail-watch-status/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    const userDoc = await firebaseAdminService.db
+      .collection('users')
+      .doc(userId)
+      .get();
+    
+    if (!userDoc.exists) {
+      return res.json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    res.json({
+      userId: userId,
+      hasGmailTokens: !!userData.googleRefreshToken,
+      gmailWatch: userData.gmailWatch || 'Not configured',
+      googleEmail: userData.googleEmail || 'Not set'
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to set up Gmail watch
+async function setupGmailWatch(userId, refreshToken) {
+  try {
+    console.log('🔧 Setting up Gmail watch for user:', userId);
+    
+    // Check if GOOGLE_CLOUD_PROJECT_ID is set
+    if (!process.env.GOOGLE_CLOUD_PROJECT_ID) {
+      throw new Error('GOOGLE_CLOUD_PROJECT_ID environment variable is not set');
+    }
+    
+    // Initialize Gmail API with refresh token
+    const oauth2ClientWatch = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2ClientWatch.setCredentials({
+      refresh_token: refreshToken
+    });
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2ClientWatch });
+    
+    // Set up Gmail watch
+    const watchRequest = {
+      userId: 'me',
+      resource: {
+        labelIds: ['INBOX'],
+        topicName: `projects/${process.env.GOOGLE_CLOUD_PROJECT_ID}/topics/gmail-notifications`
+      }
+    };
+    
+    const watchResponse = await gmail.users.watch(watchRequest);
+    console.log('✅ Gmail watch set up:', watchResponse.data);
+    
+    // Store watch info in user document
+    await db.collection('users').doc(userId).update({
+      'gmailWatch.historyId': watchResponse.data.historyId,
+      'gmailWatch.expiration': new Date(parseInt(watchResponse.data.expiration)),
+      'gmailWatch.setupAt': firebaseAdminService.getFieldValue().serverTimestamp(),
+      'gmailWatch.status': 'active'
+    });
+    
+    console.log('✅ Gmail watch configuration saved');
+    return watchResponse.data;
+    
+  } catch (watchError) {
+    console.error('❌ Failed to set up Gmail watch:', watchError);
+    
+    // Store the error in the user document for debugging
+    await db.collection('users').doc(userId).update({
+      'gmailWatch.status': 'failed',
+      'gmailWatch.error': watchError.message,
+      'gmailWatch.lastAttempt': firebaseAdminService.getFieldValue().serverTimestamp()
+    });
+    
+    throw watchError;
+  }
+}
 
 // Step 2: Handle OAuth callback
 router.get('/google/callback', async (req, res) => {
@@ -115,13 +206,83 @@ router.get('/google/callback', async (req, res) => {
     });
     
     // Store refresh token in Firestore
-    await admin.firestore().collection('users').doc(userId).update({
+    await db.collection('users').doc(userId).update({
       googleRefreshToken: tokens.refresh_token,
       googleEmail: userInfo.data.email,
       googleConnected: true,
-      googleConnectedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      googleConnectedAt: firebaseAdminService.getFieldValue().serverTimestamp(),
+      updatedAt: firebaseAdminService.getFieldValue().serverTimestamp()
     });
+    
+    // Set up Gmail watch - YOUR EXACT CODE INTEGRATION
+    try {
+      console.log('🔧 Setting up Gmail watch for user:', userId);
+      
+      // Initialize Gmail API
+      const oauth2ClientForWatch = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI
+      );
+      
+      oauth2ClientForWatch.setCredentials({
+        refresh_token: tokens.refresh_token
+      });
+      
+      const gmail = google.gmail({ version: 'v1', auth: oauth2ClientForWatch });
+      
+      // Set up Gmail watch
+      const watchRequest = {
+        userId: 'me',
+        resource: {
+          labelIds: ['INBOX'],
+          topicName: `projects/${process.env.GOOGLE_CLOUD_PROJECT_ID}/topics/gmail-notifications`
+        }
+      };
+      
+      const watchResponse = await gmail.users.watch(watchRequest);
+      console.log('✅ Gmail watch set up:', watchResponse.data);
+      
+      // Store watch info in user document
+      await db.collection('users').doc(userId).update({
+        'gmailWatch.historyId': watchResponse.data.historyId,
+        'gmailWatch.expiration': new Date(parseInt(watchResponse.data.expiration)),
+        'gmailWatch.setupAt': firebaseAdminService.getFieldValue().serverTimestamp()
+      });
+      
+      console.log('✅ Gmail watch configuration saved');
+      
+    } catch (watchError) {
+      console.error('❌ Failed to set up Gmail watch:', watchError);
+      // Don't fail the entire auth process if watch setup fails
+    }
+
+    // Create default auto-reply settings
+    try {
+      const settingsRef = db
+        .collection('users')
+        .doc(userId)
+        .collection('autoReplySettings')
+        .doc('default');
+      
+      const existingSettings = await settingsRef.get();
+      
+      if (!existingSettings.exists) {
+        await settingsRef.set({
+          isActive: true,
+          template: 'Thank you for your email. I will get back to you soon!',
+          replyDelay: 0, // Immediate
+          useAI: false,
+          signature: 'Best regards',
+          replyToAll: false,
+          allowMultipleReplies: false,
+          createdAt: firebaseAdminService.getFieldValue().serverTimestamp()
+        });
+        console.log('✅ Default auto-reply settings created');
+      }
+    } catch (settingsError) {
+      console.error('❌ Failed to create auto-reply settings:', settingsError);
+    }
     
     console.log('Google account connected successfully for user:', userId);
     
@@ -167,6 +328,109 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// Manual test endpoint - YOUR EXACT CODE
+router.post('/test-manual-autoreply/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const admin = require('firebase-admin');
+    const firebaseAdminService = require('../services/firebaseAdmin');
+    
+    // Create a test email in the queue
+    const testEmail = {
+      id: `manual-test-${Date.now()}`,
+      threadId: `thread-${Date.now()}`,
+      from: 'test@example.com',
+      to: 'jeniljoshi56@gmail.com',
+      subject: 'Manual Test Auto-Reply',
+      body: 'This is a manual test email.',
+      date: new Date().toISOString(),
+      messageId: `<manual-${Date.now()}@test.com>`
+    };
+    
+    // Add directly to queue
+    const queueRef = await firebaseAdminService.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .add({
+        emailData: testEmail,
+        status: 'pending',
+        priority: 'normal',
+        createdAt: firebaseAdminService.getFieldValue().serverTimestamp(),
+        scheduledFor: firebaseAdminService.getFieldValue().serverTimestamp(),
+        retryCount: 0,
+        maxRetries: 3,
+        userId: userId
+      });
+    
+    console.log('✅ Manual test queued:', queueRef.id);
+    
+    res.json({
+      success: true,
+      message: 'Manual test auto-reply added to queue',
+      queueId: queueRef.id
+    });
+    
+  } catch (error) {
+    console.error('❌ Manual test failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Retry Gmail watch setup endpoint
+router.post('/gmail-watch/retry/:userId', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    // Check if user is authorized to retry for this userId
+    if (req.user.uid !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+    
+    // Get user's refresh token
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    const userData = userDoc.data();
+    if (!userData.googleRefreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'Google account not connected'
+      });
+    }
+    
+    // Retry Gmail watch setup
+    const watchData = await setupGmailWatch(userId, userData.googleRefreshToken);
+    
+    res.json({
+      success: true,
+      message: 'Gmail watch setup completed successfully',
+      watchData: {
+        historyId: watchData.historyId,
+        expiration: new Date(parseInt(watchData.expiration))
+      }
+    });
+    
+  } catch (error) {
+    console.error('Gmail watch retry failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Check Google connection status
 router.get('/google/status', authenticateToken, async (req, res) => {
   try {
@@ -184,7 +448,8 @@ router.get('/google/status', authenticateToken, async (req, res) => {
       success: true,
       connected: isConnected,
       email: userData?.googleEmail || null,
-      connectedAt: userData?.googleConnectedAt || null
+      connectedAt: userData?.googleConnectedAt || null,
+      gmailWatch: userData?.gmailWatch || null
     });
   } catch (error) {
     console.error('Error checking Google status:', error);
@@ -202,11 +467,12 @@ router.delete('/google/disconnect', authenticateToken, async (req, res) => {
     
     // Remove Google tokens from Firestore
     await admin.firestore().collection('users').doc(userId).update({
-      googleRefreshToken: admin.firestore.FieldValue.delete(),
-      googleEmail: admin.firestore.FieldValue.delete(),
+      googleRefreshToken: firebaseAdminService.getFieldValue().delete(),
+      googleEmail: firebaseAdminService.getFieldValue().delete(),
       googleConnected: false,
-      googleDisconnectedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      gmailWatch: firebaseAdminService.getFieldValue().delete(),
+      googleDisconnectedAt: firebaseAdminService.getFieldValue().serverTimestamp(),
+      updatedAt: firebaseAdminService.getFieldValue().serverTimestamp()
     });
     
     console.log('Google account disconnected for user:', userId);

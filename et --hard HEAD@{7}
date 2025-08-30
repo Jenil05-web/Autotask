@@ -1,0 +1,53 @@
+[33m1da06a6[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{0}: commit: changes
+[33m23f5ad5[m HEAD@{1}: commit: minor changes made
+[33mc349ec6[m HEAD@{2}: commit: auto-reply updates
+[33mc884253[m HEAD@{3}: commit: web hook
+[33m9904d64[m HEAD@{4}: commit: server.js updated
+[33m634546e[m HEAD@{5}: commit: serve.js updated
+[33m66c4b05[m HEAD@{6}: commit: update server.js
+[33m7b79871[m HEAD@{7}: commit: auto-reply fixed
+[33maf5909b[m HEAD@{8}: commit: autoreply files made
+[33m557818b[m HEAD@{9}: commit: emailScheduler.js
+[33m39a2787[m HEAD@{10}: commit: fixes
+[33m9bed51c[m HEAD@{11}: commit: delete functionalities
+[33m35055f6[m HEAD@{12}: commit: api.js fix
+[33m3411c79[m HEAD@{13}: commit: emails.js fixed !
+[33m04ac6b9[m HEAD@{14}: commit: emails.js updated
+[33m34f61ea[m HEAD@{15}: commit: fireabase adimn
+[33md572cb5[m HEAD@{16}: commit: fixing changes in progress
+[33m65d9568[m HEAD@{17}: commit: fixed changes
+[33m452ba21[m HEAD@{18}: commit: updated email dashboard
+[33m38ed626[m HEAD@{19}: commit: updated email dashboard
+[33m215ffee[m HEAD@{20}: checkout: moving from main to main
+[33m215ffee[m HEAD@{21}: commit: emailservice fixed !
+[33m2eddf15[m HEAD@{22}: commit: changes made
+[33m01e3525[m HEAD@{23}: commit: changes made minor
+[33mbb7a6fc[m HEAD@{24}: commit: changes made
+[33mbbca7b2[m HEAD@{25}: commit: googleOAuth.js created
+[33m62e2a20[m HEAD@{26}: commit: updated emailservice
+[33maee4259[m HEAD@{27}: commit: emailservice properly made
+[33mb51b9ad[m HEAD@{28}: commit: minor changes made
+[33m8b09618[m HEAD@{29}: commit: changes made
+[33mac7701b[m HEAD@{30}: commit: email automation changes
+[33m86aa7aa[m HEAD@{31}: commit: commits
+[33ma5ca8c3[m HEAD@{32}: commit: chaanges
+[33mbdbd900[m HEAD@{33}: pull --tags origin main: Fast-forward
+[33m0eb36b0[m HEAD@{34}: pull --tags origin main: Fast-forward
+[33m07c0e27[m HEAD@{35}: pull --tags origin main: Fast-forward
+[33m078e2be[m HEAD@{36}: pull --tags origin main: Fast-forward
+[33m6d9b297[m HEAD@{37}: pull --tags origin main: Fast-forward
+[33m3ab2e89[m HEAD@{38}: pull --tags origin main: Fast-forward
+[33m7a91843[m HEAD@{39}: pull --tags origin main: Fast-forward
+[33m3f82341[m HEAD@{40}: pull --tags origin main: Fast-forward
+[33m98b23aa[m HEAD@{41}: pull --tags origin main: Fast-forward
+[33m8ac1463[m HEAD@{42}: commit: compression
+[33m72905d2[m HEAD@{43}: commit: updates
+[33m9ad5d68[m HEAD@{44}: commit: changes made
+[33m92651b4[m HEAD@{45}: pull --tags origin main: Fast-forward
+[33me87b657[m HEAD@{46}: commit: changes made
+[33md6c1b38[m HEAD@{47}: commit: minor changes made
+[33m0195bd4[m HEAD@{48}: commit: profile added
+[33mc7be9fc[m HEAD@{49}: commit: firebase added
+[33m915ea8d[m HEAD@{50}: commit: package.json updated
+[33m05f350e[m HEAD@{51}: commit: extra file deleted
+[33m04fda2e[m HEAD@{52}: commit (initial): auotask files initinal created

@@ -1,0 +1,41 @@
+{
+  "name": "auto-task-ai",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm start",
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Auto Task AI - Automate your daily tasks with AI",
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "dotenv-cli": "^10.0.0"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.1",
+    "@mui/lab": "^7.0.0-beta.16",
+    "@mui/material": "^7.3.1",
+    "@mui/x-date-pickers": "^8.10.2",
+    "axios": "^1.11.0",
+    "compression": "^1.8.1",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.1",
+    "firebase": "^12.1.0",
+    "googleapis": "^157.0.0",
+    "helmet": "^8.1.0",
+    "joi": "^18.0.1",
+    "morgan": "^1.10.1",
+    "nodemailer": "^7.0.5",
+    "react-router-dom": "^7.8.1"
+  }
+}
