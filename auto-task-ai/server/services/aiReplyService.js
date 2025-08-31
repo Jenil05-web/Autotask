@@ -844,4 +844,4 @@ Auto-Reply:`;
   }
 }
 
-module.exports = new AIReplyService();
+module.exports = AIReplyService;

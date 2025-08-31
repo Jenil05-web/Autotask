@@ -328,7 +328,12 @@ async function addToAutoReplyQueue(userId, messageData, fromEmail) {
         userId: userId,
         source: 'gmail_webhook'
       });
-
+console.log('✅ Email added to auto-reply queue:', {
+  queueId: queueRef.id,
+  from: fromEmail,
+  subject: subjectHeader?.value,
+  status: 'pending'
+});
     console.log('Email added to auto-reply queue:', queueRef.id);
     return queueRef.id;
 

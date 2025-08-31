@@ -1,6 +1,8 @@
 const cron = require('node-cron');
 // FIX: Import the entire service instead of destructuring
-const aiReplyService = require('./aiReplyService');
+// FIX: Import the class and instantiate it
+const AIReplyService = require('./aiReplyService');
+const aiReplyService = new AIReplyService();
 
 class AutoReplyScheduler {
   constructor() {
