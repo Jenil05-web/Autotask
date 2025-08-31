@@ -1,5 +1,6 @@
 const cron = require('node-cron');
-const { processAutoReplyQueue } = require('./aiReplyService');
+// FIX: Import the entire service instead of destructuring
+const aiReplyService = require('./aiReplyService');
 
 class AutoReplyScheduler {
   constructor() {
@@ -104,8 +105,9 @@ class AutoReplyScheduler {
     try {
       this._validateInputs(userId, emailData, delayMinutes, settings);
 
-     const firebaseAdmin = require('./firebaseAdmin');
-const db = firebaseAdmin.db; // Use the db property from the service
+      const firebaseAdmin = require('./firebaseAdmin');
+      const db = firebaseAdmin.db; // Use the db property from the service
+      const admin = require('firebase-admin');
       
       const scheduledTime = new Date();
       scheduledTime.setMinutes(scheduledTime.getMinutes() + delayMinutes);
@@ -113,12 +115,12 @@ const db = firebaseAdmin.db; // Use the db property from the service
       const queueData = {
         emailData,
         settings,
-        status: 'scheduled',
+        status: 'pending', // Changed from 'scheduled' to 'pending'
         priority: options.priority || 'normal', // low, normal, high
         retryCount: 0,
         maxRetries: options.maxRetries || this.config.maxRetries,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        scheduledFor: scheduledTime,
+        scheduledFor: admin.firestore.Timestamp.fromDate(scheduledTime),
         userId,
         metadata: {
           source: options.source || 'api',
@@ -150,8 +152,8 @@ const db = firebaseAdmin.db; // Use the db property from the service
    */
   async cancelScheduledReply(userId, documentId) {
     try {
-      const admin = require('./firebaseAdmin');
-      const db = admin.firestore();
+      const firebaseAdmin = require('./firebaseAdmin');
+      const db = firebaseAdmin.db;
 
       await db
         .collection('users')
@@ -160,7 +162,7 @@ const db = firebaseAdmin.db; // Use the db property from the service
         .doc(documentId)
         .update({
           status: 'cancelled',
-          cancelledAt: admin.firestore.FieldValue.serverTimestamp()
+          cancelledAt: require('firebase-admin').firestore.FieldValue.serverTimestamp()
         });
 
       console.log(`❌ Auto-reply cancelled: ${documentId}`);
@@ -211,14 +213,14 @@ const db = firebaseAdmin.db; // Use the db property from the service
    */
   async getPendingItems(userId, limit = 50) {
     try {
-      const admin = require('./firebaseAdmin');
-      const db = admin.firestore();
+      const firebaseAdmin = require('./firebaseAdmin');
+      const db = firebaseAdmin.db;
 
       const snapshot = await db
         .collection('users')
         .doc(userId)
         .collection('autoReplyQueue')
-        .where('status', 'in', ['scheduled', 'processing', 'retry'])
+        .where('status', 'in', ['pending', 'processing', 'retry'])
         .orderBy('scheduledFor', 'asc')
         .limit(limit)
         .get();
@@ -257,7 +259,8 @@ const db = firebaseAdmin.db; // Use the db property from the service
         console.warn('⏰ Queue processing timeout reached');
       }, this.config.processingTimeout);
 
-      await processAutoReplyQueue(this.config.batchSize);
+      // FIX: Call the method on the service instance to preserve 'this' context
+      const result = await aiReplyService.processAutoReplyQueue();
       
       clearTimeout(processTimeout);
       
@@ -267,6 +270,7 @@ const db = firebaseAdmin.db; // Use the db property from the service
       
       const duration = Date.now() - startTime;
       console.log(`✅ Queue processing completed in ${duration}ms`);
+      console.log(`📊 Processed: ${result.processed}, Failed: ${result.failed}`);
       
     } catch (error) {
       this.stats.errorCount++;
@@ -288,8 +292,9 @@ const db = firebaseAdmin.db; // Use the db property from the service
    */
   async _cleanupOldEntries() {
     try {
-      const admin = require('./firebaseAdmin');
-      const db = admin.firestore();
+      const firebaseAdmin = require('./firebaseAdmin');
+      const db = firebaseAdmin.db;
+      const admin = require('firebase-admin');
       
       const cutoffTime = new Date();
       cutoffTime.setHours(cutoffTime.getHours() - this.config.cleanupOlderThanHours);
@@ -306,8 +311,8 @@ const db = firebaseAdmin.db; // Use the db property from the service
           .collection('users')
           .doc(userDoc.id)
           .collection('autoReplyQueue')
-          .where('status', 'in', ['completed', 'failed', 'cancelled'])
-          .where('createdAt', '<', cutoffTime)
+          .where('status', 'in', ['sent', 'failed', 'cancelled'])
+          .where('createdAt', '<', admin.firestore.Timestamp.fromDate(cutoffTime))
           .limit(100) // Process in batches
           .get();
         
