@@ -687,4 +687,4 @@ class GmailWatchService {
   }
 }
 
-module.exports = new GmailWatchService();   
+module.exports = new GmailWatchService();
