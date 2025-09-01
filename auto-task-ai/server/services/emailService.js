@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
-const firebaseAdminService = require('./firebaseAdmin');
-const admin = firebaseAdminService.admin;
+const firebaseAdmin = require('./firebaseAdmin');
+const admin = firebaseAdmin.admin;
+
 
 // Create Gmail API client for a specific user
 const createGmailClient = async (userId) => {
@@ -123,8 +124,89 @@ const createEmailMessage = ({ from, to, cc, bcc, subject, html, text }) => {
   return message;
 };
 
-// Send email using Gmail API
-const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => {
+// NEW: Function to set up auto-reply settings
+const setupAutoReplySettings = async (userId, autoReplyConfig, recipients) => {
+  try {
+    console.log('Setting up auto-reply settings for user:', userId);
+    
+    // Check if admin and firestore are properly initialized
+    if (!admin || !admin.firestore) {
+      throw new Error('Firebase Admin not properly initialized');
+    }
+    
+    // Get the current timestamp - using multiple fallback methods
+    let serverTimestamp;
+    try {
+      // Try the correct path for FieldValue
+      serverTimestamp = admin.firestore.FieldValue.serverTimestamp();
+    } catch (error) {
+      console.warn('Primary serverTimestamp method failed, trying alternative:', error.message);
+      try {
+        // Alternative approach - direct from firestore instance
+        const firestore = admin.firestore();
+        serverTimestamp = firestore.FieldValue.serverTimestamp();
+      } catch (error2) {
+        console.warn('Secondary serverTimestamp method failed, using ISO timestamp:', error2.message);
+        // Fallback to ISO timestamp
+        serverTimestamp = new Date().toISOString();
+      }
+    }
+    
+    // Create auto-reply settings document
+    const autoReplySettings = {
+      isActive: true,
+      useAI: autoReplyConfig.useAI || false,
+      replyType: autoReplyConfig.replyType || 'standard',
+      aiTone: autoReplyConfig.aiTone || 'professional',
+      
+      // Template/Custom message
+      hasCustomMessage: autoReplyConfig.replyType === 'custom',
+      customMessage: autoReplyConfig.customMessage || '',
+      template: {
+        subject: 'Re: {originalSubject}',
+        body: autoReplyConfig.customMessage || 'Thank you for your email. I will get back to you soon!'
+      },
+      
+      // Advanced settings
+      delay: autoReplyConfig.delayMinutes || 0, // in minutes
+      replyOnlyOnce: autoReplyConfig.replyOnlyOnce !== false, // default true
+      skipKeywords: autoReplyConfig.skipKeywords || [],
+      
+      // Business hours
+      onlyDuringHours: autoReplyConfig.onlyDuringHours || false,
+      businessHours: {
+        start: autoReplyConfig.businessHoursStart || '09:00',
+        end: autoReplyConfig.businessHoursEnd || '17:00'
+      },
+      
+      // Metadata - using the resolved serverTimestamp
+      createdAt: serverTimestamp,
+      updatedAt: serverTimestamp,
+      createdBy: 'email_scheduler',
+      
+      // Recipients that triggered this auto-reply setup
+      triggerRecipients: recipients
+    };
+    
+    // Save to database
+    const settingsRef = await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplySettings')
+      .add(autoReplySettings);
+    
+    console.log('Auto-reply settings saved with ID:', settingsRef.id);
+    
+    return settingsRef.id;
+    
+  } catch (error) {
+    console.error('Error setting up auto-reply settings:', error);
+    throw error;
+  }
+};
+
+// Send email using Gmail API with auto-reply support
+const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text, autoReply }) => {
   try {
     console.log('=== Sending Email via Gmail API ===');
     console.log('User ID:', userId);
@@ -186,9 +268,21 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => 
       }
     });
     
-    console.log('✅ Email sent successfully via Gmail API');
+    console.log('Email sent successfully via Gmail API');
     console.log('Message ID:', response.data.id);
     console.log('Thread ID:', response.data.threadId);
+    
+    // NEW: Set up auto-reply if enabled
+    if (autoReply && autoReply.enabled) {
+      console.log('Setting up auto-reply for sent email...');
+      try {
+        await setupAutoReplySettings(userId, autoReply, toArray);
+        console.log('Auto-reply settings configured successfully');
+      } catch (autoReplyError) {
+        console.error('Failed to set up auto-reply:', autoReplyError);
+        // Don't fail the email send if auto-reply setup fails
+      }
+    }
     
     return {
       success: true,
@@ -200,7 +294,7 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text }) => 
     };
     
   } catch (error) {
-    console.error('❌ Email sending failed via Gmail API:', error);
+    console.error('Email sending failed via Gmail API:', error);
     
     // Handle specific Gmail API errors
     let errorMessage = error.message;
@@ -371,5 +465,6 @@ module.exports = {
   listEmails,
   canUserSendEmails,
   getUserProfile,
-  personalizeEmail 
+  personalizeEmail,
+  setupAutoReplySettings
 };
