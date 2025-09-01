@@ -14,6 +14,33 @@ const firebaseAdmin = require('./services/firebaseAdmin');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Security middleware
+app.use(helmet());
+app.use(compression());
+
+// CORS configuration
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  credentials: true
+}));
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Logging middleware
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan('dev'));
+}
+
+// Webhook and API routes
+app.use('/api/webhooks', webhooksRouter);
+app.use('/api/auto-reply', autoReplyRouter);
+
+// Start auto-reply scheduler
+autoReplyScheduler.start();
+
+// Debug endpoints
 app.get('/debug/find-user/:email', async (req, res) => {
   try {
     const { email } = req.params.toLowerCase();
@@ -229,32 +256,119 @@ app.post('/debug/test-auto-reply', async (req, res) => {
   }
 });
 
-// Security middleware
-app.use(helmet());
-app.use(compression());
-app.use('/api/webhooks', webhooksRouter);
-app.use('/api/auto-reply', autoReplyRouter);
+// Add this endpoint to check queue contents
+app.get('/api/check-queue/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    const queueSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .orderBy('createdAt', 'desc')
+      .limit(10)
+      .get();
+    
+    const queueItems = [];
+    queueSnapshot.forEach(doc => {
+      queueItems.push({
+        id: doc.id,
+        status: doc.data().status,
+        source: doc.data().source,
+        from: doc.data().emailData?.from,
+        subject: doc.data().emailData?.subject,
+        createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+        scheduledFor: doc.data().scheduledFor?.toDate?.() || doc.data().scheduledFor
+      });
+    });
+    
+    res.json({
+      totalItems: queueItems.length,
+      items: queueItems
+    });
+    
+  } catch (error) {
+    console.error('Error checking queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-autoReplyScheduler.start();
+// Add endpoint to simulate a real Gmail webhook
+app.post('/api/simulate-gmail-webhook/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    // Simulate receiving an email
+    const simulatedEmail = {
+      id: 'simulated-' + Date.now(),
+      threadId: 'thread-' + Date.now(),
+      from: 'sender@example.com',
+      to: 'jeniljoshi56@gmail.com',
+      subject: 'Test Email for Auto-Reply',
+      body: 'This is a test email to trigger auto-reply.',
+      date: new Date().toISOString(),
+      messageId: 'msg-' + Date.now()
+    };
+    
+    console.log('🎭 Simulating Gmail webhook for user:', userId);
+    console.log('📧 Simulated email:', simulatedEmail);
+    
+    // Add directly to auto-reply queue (simulating what the webhook would do)
+    const queueRef = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .add({
+        emailData: simulatedEmail,
+        status: 'pending',
+        priority: 'normal',
+        createdAt: new Date(),
+        scheduledFor: new Date(),
+        retryCount: 0,
+        maxRetries: 3,
+        userId: userId,
+        source: 'simulated_gmail_webhook'
+      });
+    
+    console.log('✅ Simulated email added to auto-reply queue:', queueRef.id);
+    
+    res.json({
+      success: true,
+      message: 'Gmail webhook simulated successfully',
+      queueId: queueRef.id,
+      simulatedEmail: simulatedEmail
+    });
+    
+  } catch (error) {
+    console.error('Error simulating Gmail webhook:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-// Logging middleware
-if (process.env.NODE_ENV !== 'production') {
-  app.use(morgan('dev'));
-}
-
-// CORS configuration
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true
-}));
-
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Import routes
-const emailRoutes = require('./routes/emails');
-const authRoutes = require('./routes/auth');
+// Add the missing test auto-reply queue endpoint
+app.post('/api/test-auto-reply-queue', async (req, res) => {
+  try {
+    const AIReplyService = require('./services/aiReplyService');
+    const aiReplyService = new AIReplyService();
+    
+    console.log('🧪 Manually triggering auto-reply queue processing...');
+    const result = await aiReplyService.processAutoReplyQueue();
+    
+    res.json({
+      success: true,
+      message: 'Auto-reply queue processed manually',
+      processed: result?.processed || 0,
+      failed: result?.failed || 0
+    });
+    
+  } catch (error) {
+    console.error('Error processing auto-reply queue:', error);
+    res.status(500).json({ 
+      error: 'Failed to process queue',
+      details: error.message 
+    });
+  }
+});
 
 // Basic routes
 app.get('/', (req, res) => {
@@ -522,6 +636,10 @@ app.post('/api/refresh-google-tokens/:userId', async (req, res) => {
     });
   }
 });
+
+// Import routes
+const emailRoutes = require('./routes/emails');
+const authRoutes = require('./routes/auth');
 
 // API routes
 app.use('/api/emails', emailRoutes);
