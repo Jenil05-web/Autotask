@@ -2,7 +2,6 @@ const { google } = require('googleapis');
 const firebaseAdmin = require('./firebaseAdmin');
 const admin = firebaseAdmin.admin;
 
-
 // Create Gmail API client for a specific user
 const createGmailClient = async (userId) => {
   try {
@@ -124,33 +123,13 @@ const createEmailMessage = ({ from, to, cc, bcc, subject, html, text }) => {
   return message;
 };
 
-// NEW: Function to set up auto-reply settings
-const setupAutoReplySettings = async (userId, autoReplyConfig, recipients) => {
+// FIXED: Function to set up auto-reply settings
+const setupAutoReplySettings = async (userId, autoReplyConfig, recipients, originalSubject) => {
   try {
-    console.log('Setting up auto-reply settings for user:', userId);
+    console.log('🔧 Setting up auto-reply settings for user:', userId);
     
-    // Check if admin and firestore are properly initialized
-    if (!admin || !admin.firestore) {
-      throw new Error('Firebase Admin not properly initialized');
-    }
-    
-    // Get the current timestamp - using multiple fallback methods
-    let serverTimestamp;
-    try {
-      // Try the correct path for FieldValue
-      serverTimestamp = admin.firestore.FieldValue.serverTimestamp();
-    } catch (error) {
-      console.warn('Primary serverTimestamp method failed, trying alternative:', error.message);
-      try {
-        // Alternative approach - direct from firestore instance
-        const firestore = admin.firestore();
-        serverTimestamp = firestore.FieldValue.serverTimestamp();
-      } catch (error2) {
-        console.warn('Secondary serverTimestamp method failed, using ISO timestamp:', error2.message);
-        // Fallback to ISO timestamp
-        serverTimestamp = new Date().toISOString();
-      }
-    }
+    // FIXED: Use simple timestamp instead of Firebase serverTimestamp
+    const timestamp = new Date().toISOString();
     
     // Create auto-reply settings document
     const autoReplySettings = {
@@ -179,28 +158,37 @@ const setupAutoReplySettings = async (userId, autoReplyConfig, recipients) => {
         end: autoReplyConfig.businessHoursEnd || '17:00'
       },
       
-      // Metadata - using the resolved serverTimestamp
-      createdAt: serverTimestamp,
-      updatedAt: serverTimestamp,
+      // Context for replies (IMPORTANT ADDITION)
+      originalSubject: originalSubject,
+      expectedRepliers: recipients, // Who we expect replies from
+      
+      // Metadata - FIXED: using simple timestamp
+      createdAt: timestamp,
+      updatedAt: timestamp,
       createdBy: 'email_scheduler',
       
-      // Recipients that triggered this auto-reply setup
-      triggerRecipients: recipients
+      // Important: This is for FUTURE incoming replies, not immediate processing
+      triggerCondition: 'incoming_reply_only',
+      waitingForReplies: true
     };
     
-    // Save to database
+    // Save to database - FIXED: use admin.firestore() with parentheses
     const settingsRef = await admin.firestore()
       .collection('users')
       .doc(userId)
       .collection('autoReplySettings')
       .add(autoReplySettings);
     
-    console.log('Auto-reply settings saved with ID:', settingsRef.id);
+    console.log('✅ Auto-reply settings saved. Will trigger when replies are received.');
+    console.log('📋 Settings ID:', settingsRef.id);
+    console.log('📧 Original subject:', originalSubject);
+    console.log('👥 Expected repliers:', recipients);
+    console.log('🚫 NO auto-reply sent immediately - waiting for incoming replies');
     
     return settingsRef.id;
     
   } catch (error) {
-    console.error('Error setting up auto-reply settings:', error);
+    console.error('❌ Error setting up auto-reply settings:', error);
     throw error;
   }
 };
@@ -272,14 +260,14 @@ const sendEmail = async ({ userId, from, to, cc, bcc, subject, html, text, autoR
     console.log('Message ID:', response.data.id);
     console.log('Thread ID:', response.data.threadId);
     
-    // NEW: Set up auto-reply if enabled
+    // Set up auto-reply if enabled - CORRECTED with proper parameters
     if (autoReply && autoReply.enabled) {
-      console.log('Setting up auto-reply for sent email...');
+      console.log('Setting up auto-reply settings for future replies...');
       try {
-        await setupAutoReplySettings(userId, autoReply, toArray);
-        console.log('Auto-reply settings configured successfully');
+        await setupAutoReplySettings(userId, autoReply, toArray, subject);
+        console.log('Auto-reply settings configured for when replies are received');
       } catch (autoReplyError) {
-        console.error('Failed to set up auto-reply:', autoReplyError);
+        console.error('Failed to set up auto-reply settings:', autoReplyError);
         // Don't fail the email send if auto-reply setup fails
       }
     }

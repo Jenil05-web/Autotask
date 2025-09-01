@@ -7,10 +7,8 @@ const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const Joi = require('joi');
 
 // Fix the Firebase Admin import
-// Fix the Firebase Admin import
 const firebaseAdminService = require('../services/firebaseAdmin');
 const db = firebaseAdminService.firestore; // Use the pre-initialized firestore instance
-
 
 // Validation schema
 const scheduleEmailSchema = Joi.object({
@@ -61,7 +59,7 @@ router.post('/preview', optionalAuth, (req, res) => {
   }
 });
 
-// Schedule a new email
+// Schedule a new email - CORRECTED VERSION FOR AUTO-REPLY SETUP
 router.post('/schedule', authenticateToken, async (req, res) => {
   try {
     const { error } = scheduleEmailSchema.validate(req.body);
@@ -76,12 +74,96 @@ router.post('/schedule', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
     const emailData = req.body;
     
+    console.log('🔍 SCHEDULING EMAIL:', {
+      userId,
+      subject: emailData.subject,
+      recipients: emailData.recipients,
+      hasAutoReply: !!emailData.autoReply,
+      autoReplyEnabled: emailData.autoReply?.enabled
+    });
+    
+    // Schedule the email as usual
     const scheduledTask = await scheduleNewEmail(userId, emailData);
+    
+    // 🚀 NEW: If auto-reply is enabled, set up auto-reply settings for incoming replies
+    if (emailData.autoReply && emailData.autoReply.enabled) {
+      try {
+        console.log('✅ Auto-reply enabled - setting up auto-reply settings for future incoming replies');
+        
+        // Save auto-reply settings for when people reply to this email
+        const autoReplySettings = {
+          isActive: true,
+          useAI: emailData.autoReply.useAI || false,
+          replyType: emailData.autoReply.replyType || 'standard',
+          aiTone: emailData.autoReply.aiTone || 'professional',
+          
+          // Template/Custom message
+          customMessage: emailData.autoReply.customMessage || '',
+          template: {
+            subject: 'Re: {originalSubject}',
+            body: emailData.autoReply.customMessage || 'Thank you for your email. I will get back to you soon!'
+          },
+          
+          // Advanced settings
+          delay: emailData.autoReply.delayMinutes || 0,
+          replyOnlyOnce: emailData.autoReply.replyOnlyOnce !== false,
+          skipKeywords: emailData.autoReply.skipKeywords || [],
+          includeDisclaimer: emailData.autoReply.includeDisclaimer !== false,
+          
+          // Context for this specific email thread
+          originalEmailId: scheduledTask.id,
+          originalSubject: emailData.subject,
+          sentTo: emailData.recipients, // Who we sent the original email to
+          
+          // Metadata
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdBy: 'email_scheduler',
+          
+          // IMPORTANT: This is for future incoming replies only
+          triggerCondition: 'incoming_reply_only',
+          waitingForReplies: true,
+          
+          // Expiry (optional - auto-reply expires after 30 days if not specified)
+          expiresAt: emailData.autoReply.expiresAt 
+            ? admin.firestore.Timestamp.fromDate(new Date(emailData.autoReply.expiresAt))
+            : admin.firestore.Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
+        };
+
+        // Save to auto-reply settings (for when replies come in)
+        const settingsRef = await db
+          .collection('users')
+          .doc(userId)
+          .collection('autoReplySettings')
+          .add(autoReplySettings);
+
+        console.log('✅ Auto-reply settings saved:', {
+          settingsId: settingsRef.id,
+          originalSubject: emailData.subject,
+          waitingForRepliesFrom: emailData.recipients,
+          useAI: emailData.autoReply.useAI,
+          message: 'Auto-reply will trigger when someone replies to this email'
+        });
+
+        // 🚫 IMPORTANT: Do NOT add anything to autoReplyQueue yet
+        console.log('🚫 NO emails added to auto-reply queue - waiting for incoming replies');
+
+      } catch (autoReplyError) {
+        console.error('❌ Error setting up auto-reply settings (continuing anyway):', autoReplyError);
+        // Don't fail the whole request if auto-reply setup fails
+      }
+    } else {
+      console.log('🔕 Auto-reply not enabled for this email');
+    }
     
     res.status(201).json({
       success: true,
       message: 'Email scheduled successfully',
-      task: scheduledTask
+      task: scheduledTask,
+      autoReplyConfigured: !!(emailData.autoReply && emailData.autoReply.enabled),
+      details: emailData.autoReply && emailData.autoReply.enabled 
+        ? 'Auto-reply is configured and will activate when recipients reply to your email'
+        : 'No auto-reply configured'
     });
   } catch (error) {
     console.error('Error scheduling email:', error);
@@ -140,8 +222,6 @@ router.get('/scheduled', authenticateToken, async (req, res) => {
   }
 });
 
-// Cancel a scheduled email - UPDATED TO PROPERLY CANCEL
-// Cancel a scheduled email - UPDATED TO PROPERLY CANCEL
 // Cancel a scheduled email - CORRECTED VERSION
 router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
   try {
@@ -169,64 +249,15 @@ router.delete('/scheduled/:id', authenticateToken, async (req, res) => {
     // Cancel the scheduled task if it exists
     if (emailData.status === 'scheduled') {
       try {
-        await cancelEmailTask(userId, emailId); // Fixed function name
+        await cancelEmailTask(userId, emailId);
       } catch (cancelError) {
         console.error('Error cancelling scheduled task:', cancelError);
         // Continue with status update even if task cancellation fails
       }
     }
     
-    // Update the document status - Fixed Firestore reference
+    // Update the document status
     await db
-      .collection('users')
-      .doc(userId)
-      .collection('scheduledEmails')
-      .doc(emailId)
-      .update({
-        status: 'cancelled',
-        cancelledAt: admin.firestore.FieldValue.serverTimestamp() // Fixed reference
-      });
-    
-    console.log('Email cancelled successfully');
-    res.status(200).json({
-      success: true,
-      message: 'Email cancelled successfully'
-    });
-  } catch (error) {
-    console.error('Error cancelling email:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to cancel email' 
-    });
-  }
-});
-
-// Reschedule an email - ENHANCED WITH PROPER RESCHEDULING
-router.put('/scheduled/:id/reschedule', authenticateToken, async (req, res) => {
-  try {
-    console.log('=== PUT /scheduled/:id/reschedule route called ===');
-    const userId = req.user.uid;
-    const emailId = req.params.id;
-    const { scheduledFor } = req.body;
-
-    if (!scheduledFor) {
-      return res.status(400).json({
-        success: false,
-        error: 'scheduledFor is required'
-      });
-    }
-
-    // Validate the new date
-    const newDate = new Date(scheduledFor);
-    if (newDate <= new Date()) {
-      return res.status(400).json({
-        success: false,
-        error: 'Scheduled time must be in the future'
-      });
-    }
-
-    // Get the email document
-    const emailDoc = await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
@@ -275,7 +306,7 @@ router.put('/scheduled/:id/reschedule', authenticateToken, async (req, res) => {
     }
     
     // Get the email document
-    const emailDoc = await admin.firestore
+    const emailDoc = await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
@@ -291,7 +322,7 @@ router.put('/scheduled/:id/reschedule', authenticateToken, async (req, res) => {
     
     const emailData = emailDoc.data();
     
-    // Reschedule the task (you'll need this function in emailScheduler)
+    // Reschedule the task
     if (emailData.status === 'scheduled') {
       try {
         await rescheduleEmail(userId, emailId, emailData, scheduledFor);
@@ -305,7 +336,7 @@ router.put('/scheduled/:id/reschedule', authenticateToken, async (req, res) => {
     }
     
     // Update the document
-    await admin.firestore
+    await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
@@ -379,7 +410,7 @@ router.get('/activity', authenticateToken, async (req, res) => {
   try {
     console.log('=== GET /activity route called ===');
     const userId = req.user.uid;
-    const snapshot = await admin.firestore
+    const snapshot = await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')
@@ -458,7 +489,7 @@ router.get('/scheduled/:id', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
     const emailId = req.params.id;
     
-    const emailDoc = await admin.firestore
+    const emailDoc = await db
       .collection('users')
       .doc(userId)
       .collection('scheduledEmails')

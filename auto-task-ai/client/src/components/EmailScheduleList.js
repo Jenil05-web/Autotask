@@ -154,30 +154,28 @@ const EmailScheduleList = ({ emails, onDelete, getStatusColor, getStatusIcon, on
   // Test functions for debugging
   const testServerConnection = async () => {
     try {
-      console.log('Testing server connection...');
-      const response = await fetch('http://localhost:3000/');
-      const data = await response.json();
-      console.log('Server test response:', data);
-      alert('Server is reachable: ' + data.message);
-    } catch (error) {
-      console.error('Server test failed:', error);
-      alert('Server is NOT reachable: ' + error.message);
-    }
-  };
-
+    console.log('Testing server connection...');
+    const response = await fetch('http://localhost:5000/'); // Changed from 3000 to 5000
+    const data = await response.json();
+    console.log('Server test response:', data);
+    alert('Server is reachable: ' + data.message);
+  } catch (error) {
+    console.error('Server test failed:', error);
+    alert('Server is NOT reachable: ' + error.message);
+  }
+};
   const testAPIConnection = async () => {
     try {
-      console.log('Testing API connection...');
-      const response = await fetch('http://localhost:3000/api/emails/test');
-      const data = await response.json();
-      console.log('API test response:', data);
-      alert('API is reachable: ' + data.message);
-    } catch (error) {
-      console.error('API test failed:', error);
-      alert('API is NOT reachable: ' + error.message);
-    }
-  };
-
+    console.log('Testing API connection...');
+    const response = await fetch('http://localhost:5000/api/emails/test'); // Changed from 3000 to 5000
+    const data = await response.json();
+    console.log('API test response:', data);
+    alert('API is reachable: ' + data.message);
+  } catch (error) {
+    console.error('API test failed:', error);
+    alert('API is NOT reachable: ' + error.message);
+  }
+};
   if (!emails || emails.length === 0) {
     return (
       <Box>

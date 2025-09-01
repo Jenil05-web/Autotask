@@ -293,6 +293,39 @@ app.get('/api/check-queue/:userId', async (req, res) => {
   }
 });
 
+// Check auto-reply settings
+app.get('/api/check-settings/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    const settingsSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplySettings')
+      .get();
+    
+    const settings = [];
+    settingsSnapshot.forEach(doc => {
+      settings.push({
+        id: doc.id,
+        isActive: doc.data().isActive,
+        template: doc.data().template,
+        delay: doc.data().delay,
+        createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt
+      });
+    });
+    
+    res.json({
+      totalSettings: settings.length,
+      settings: settings
+    });
+    
+  } catch (error) {
+    console.error('Error checking settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Add endpoint to simulate a real Gmail webhook
 app.post('/api/simulate-gmail-webhook/:userId', async (req, res) => {
   try {
@@ -345,6 +378,92 @@ app.post('/api/simulate-gmail-webhook/:userId', async (req, res) => {
   }
 });
 
+// Complete Gmail webhook simulation endpoint (REPLACE the existing one)
+app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    console.log('🧪 Starting Gmail webhook simulation for user:', userId);
+    
+    // Create a realistic test email
+    const testEmail = {
+      id: 'sim-' + Date.now(),
+      threadId: 'thread-sim-' + Date.now(),
+      from: 'test.sender@example.com',
+      to: 'jeniljoshi56@gmail.com',
+      subject: 'Test Auto-Reply Trigger',
+      body: 'This is a simulated email to test auto-reply functionality.',
+      date: new Date().toISOString(),
+      messageId: `<sim-${Date.now()}@example.com>`,
+      snippet: 'This is a simulated email to test auto-reply...'
+    };
+    console.log('📧 Created test email:', {
+      from: testEmail.from,
+      subject: testEmail.subject,
+      id: testEmail.id
+    });
+    // Check if user has active auto-reply settings
+    const settingsSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplySettings')
+      .where('isActive', '==', true)
+      .get();
+    if (settingsSnapshot.empty) {
+      console.log('❌ No active auto-reply settings found');
+      return res.json({
+        success: false,
+        message: 'No active auto-reply settings found. Please configure auto-reply first.',
+        step: 'check_settings'
+      });
+    }
+    const settings = settingsSnapshot.docs[0].data();
+    console.log('✅ Found auto-reply settings:', {
+      hasTemplate: !!settings.template,
+      isActive: settings.isActive,
+      delay: settings.delay || 0
+    });
+    // Add email to auto-reply queue (simulate what the real webhook would do)
+    const queueData = {
+      emailData: testEmail,
+      status: 'pending',  // Use 'pending' for immediate processing
+      priority: 'normal',
+      createdAt: new Date(),
+      scheduledFor: new Date(), // Schedule immediately for testing
+      retryCount: 0,
+      maxRetries: 3,
+      userId: userId,
+      source: 'webhook_simulation',
+      settingsId: settingsSnapshot.docs[0].id
+    };
+    console.log('💾 Adding email to auto-reply queue...');
+    
+    const queueRef = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .add(queueData);
+    console.log('✅ Email added to queue with ID:', queueRef.id);
+    // Return success response
+    res.json({
+      success: true,
+      message: 'Gmail webhook simulated successfully',
+      queueId: queueRef.id,
+      emailFrom: testEmail.from,
+      emailSubject: testEmail.subject,
+      step: 'email_queued'
+    });
+  } catch (error) {
+    console.error('❌ Error in webhook simulation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Webhook simulation failed',
+      details: error.message,
+      step: 'error'
+    });
+  }
+});
+
 // Add the missing test auto-reply queue endpoint
 app.post('/api/test-auto-reply-queue', async (req, res) => {
   try {
@@ -367,6 +486,100 @@ app.post('/api/test-auto-reply-queue', async (req, res) => {
       error: 'Failed to process queue',
       details: error.message 
     });
+  }
+});
+
+// Improved simulation endpoint - NO hardcoded emails
+app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { 
+      fromEmail,           // Who is replying
+      toEmail,            // Your email (who receives the reply)
+      originalSubject,    // Subject of the original email
+      replyMessage        // Content of the reply (optional)
+    } = req.body;
+    
+    // Validate required parameters
+    if (!fromEmail || !toEmail || !originalSubject) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: fromEmail, toEmail, and originalSubject are required'
+      });
+    }
+    
+    console.log('🧪 Simulating incoming reply...');
+    console.log('📧 From:', fromEmail, '→ To:', toEmail);
+    console.log('📄 Subject:', originalSubject);
+    
+    // Create dynamic incoming reply
+    const incomingReply = {
+      id: 'incoming-reply-' + Date.now(),
+      threadId: 'reply-thread-' + Date.now(),
+      from: fromEmail,                    // Dynamic sender
+      to: toEmail,                       // Dynamic recipient (your email)
+      subject: `Re: ${originalSubject}`, // Dynamic subject
+      body: replyMessage || `Thank you for your email about "${originalSubject}". I wanted to follow up on this matter.`,
+      date: new Date().toISOString(),
+      messageId: `incoming-reply-${Date.now()}@${fromEmail.split('@')[1] || 'example.com'}`
+    };
+    console.log('✅ Created simulated reply:', {
+      from: incomingReply.from,
+      to: incomingReply.to,
+      subject: incomingReply.subject
+    });
+    // Check if user has active auto-reply settings for this email context
+    const settingsSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplySettings')
+      .where('isActive', '==', true)
+      .where('triggerCondition', '==', 'incoming_reply_only')
+      .get();
+    if (settingsSnapshot.empty) {
+      console.log('❌ No active auto-reply settings found for this user');
+      return res.json({
+        success: false,
+        message: 'No active auto-reply settings found. Please schedule an email with auto-reply enabled first.',
+        incomingReply: incomingReply
+      });
+    }
+    console.log(`✅ Found ${settingsSnapshot.size} active auto-reply settings`);
+    // Add to auto-reply queue
+    const queueRef = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .add({
+        emailData: incomingReply,
+        status: 'pending',
+        priority: 'normal',
+        createdAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+        scheduledFor: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+        retryCount: 0,
+        maxRetries: 3,
+        userId: userId,
+        source: 'simulated_incoming_reply',
+        settingsUsed: settingsSnapshot.docs[0].id
+      });
+    console.log('✅ Incoming reply added to auto-reply queue:', queueRef.id);
+    
+    res.json({
+      success: true,
+      message: 'Incoming reply simulated and added to auto-reply queue',
+      queueId: queueRef.id,
+      incomingReply: {
+        from: incomingReply.from,
+        to: incomingReply.to,
+        subject: incomingReply.subject
+      },
+      settingsFound: settingsSnapshot.size,
+      nextStep: 'Process the queue to send auto-reply back to: ' + fromEmail
+    });
+    
+  } catch (error) {
+    console.error('Error simulating incoming reply:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -400,6 +613,215 @@ app.get('/debug/env', (req, res) => {
     redirectUri: process.env.GOOGLE_REDIRECT_URI,
     firebaseInitialized: firebaseAdmin.isInitialized()
   });
+});
+
+// Auto-Reply Dashboard Monitoring Endpoints
+
+// Get auto-reply queue status with detailed information
+app.get('/api/dashboard/auto-reply-status/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    // Get queue items
+    const queueSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .orderBy('createdAt', 'desc')
+      .limit(20)
+      .get();
+    
+    // Get auto-reply settings
+    const settingsSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplySettings')
+      .where('isActive', '==', true)
+      .get();
+    
+    const queueItems = [];
+    queueSnapshot.forEach(doc => {
+      const data = doc.data();
+      queueItems.push({
+        id: doc.id,
+        status: data.status,
+        source: data.source,
+        from: data.emailData?.from,
+        to: data.emailData?.to,
+        subject: data.emailData?.subject,
+        createdAt: data.createdAt?.toDate?.() || data.createdAt,
+        processedAt: data.processedAt?.toDate?.() || data.processedAt,
+        scheduledFor: data.scheduledFor?.toDate?.() || data.scheduledFor,
+        result: data.result,
+        error: data.error
+      });
+    });
+    
+    const settings = [];
+    settingsSnapshot.forEach(doc => {
+      const data = doc.data();
+      settings.push({
+        id: doc.id,
+        isActive: data.isActive,
+        useAI: data.useAI,
+        customMessage: data.customMessage,
+        template: data.template,
+        createdAt: data.createdAt?.toDate?.() || data.createdAt
+      });
+    });
+    
+    // Get processing stats
+    const stats = {
+      total: queueItems.length,
+      pending: queueItems.filter(item => item.status === 'pending' || item.status === 'scheduled').length,
+      sent: queueItems.filter(item => item.status === 'sent').length,
+      failed: queueItems.filter(item => item.status === 'failed').length,
+      activeSettings: settings.length
+    };
+    
+    res.json({
+      success: true,
+      stats: stats,
+      queueItems: queueItems,
+      settings: settings,
+      lastProcessed: queueItems.find(item => item.status === 'sent')?.processedAt || null
+    });
+    
+  } catch (error) {
+    console.error('Error getting auto-reply status:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Trigger auto-reply processing from dashboard
+app.post('/api/dashboard/process-auto-replies/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    console.log('🎛️ Dashboard triggered auto-reply processing for user:', userId);
+    
+    const AIReplyService = require('./services/aiReplyService');
+    const aiReplyService = new AIReplyService();
+    
+    const result = await aiReplyService.processAutoReplyQueue();
+    
+    res.json({
+      success: true,
+      message: 'Auto-reply processing triggered from dashboard',
+      processed: result?.processed || 0,
+      failed: result?.failed || 0,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Error processing auto-replies from dashboard:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Test auto-reply setup from dashboard
+app.post('/api/dashboard/test-auto-reply/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    console.log('🧪 Dashboard testing auto-reply for user:', userId);
+    
+    // Create a test email
+    const testEmail = {
+      id: 'dashboard-test-' + Date.now(),
+      threadId: 'dashboard-thread-' + Date.now(),
+      from: 'dashboard.test@example.com',
+      to: 'your.email@gmail.com',
+      subject: 'Dashboard Auto-Reply Test',
+      body: 'This is a test email from the dashboard to verify auto-reply functionality.',
+      date: new Date().toISOString(),
+      messageId: `dashboard-test-${Date.now()}@example.com`
+    };
+
+    // Add to queue
+    const queueRef = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .add({
+        emailData: testEmail,
+        status: 'pending',
+        priority: 'high',
+        createdAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+        scheduledFor: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+        retryCount: 0,
+        maxRetries: 3,
+        userId: userId,
+        source: 'dashboard_test'
+      });
+
+    console.log('✅ Test email added to queue from dashboard:', queueRef.id);
+    
+    res.json({
+      success: true,
+      message: 'Test auto-reply email added to queue',
+      queueId: queueRef.id,
+      testEmail: {
+        from: testEmail.from,
+        subject: testEmail.subject
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error adding test auto-reply from dashboard:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Get auto-reply logs for dashboard
+app.get('/api/dashboard/auto-reply-logs/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    const logsSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyLogs')
+      .orderBy('timestamp', 'desc')
+      .limit(limit)
+      .get();
+    
+    const logs = [];
+    logsSnapshot.forEach(doc => {
+      const data = doc.data();
+      logs.push({
+        id: doc.id,
+        timestamp: data.timestamp?.toDate?.() || data.timestamp,
+        level: data.level || 'info',
+        message: data.message,
+        details: data.details,
+        queueId: data.queueId,
+        emailSubject: data.emailSubject,
+        status: data.status
+      });
+    });
+    
+    res.json({
+      success: true,
+      logs: logs,
+      totalLogs: logs.length
+    });
+    
+  } catch (error) {
+    console.error('Error getting auto-reply logs:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Gmail Watch Routes

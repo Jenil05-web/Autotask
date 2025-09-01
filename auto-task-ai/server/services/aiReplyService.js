@@ -360,6 +360,7 @@ Personalized Email:`;
       let replyContent;
       let replyMetadata = {};
 
+      // Generate reply content
       if (settings.useAI && this.openai) {
         console.log('Generating AI reply...');
         const aiResult = await this.generateAutoReply(emailData, null, {
@@ -374,16 +375,15 @@ Personalized Email:`;
           replyMetadata.tokensUsed = aiResult.tokens_used;
           console.log('AI reply generated successfully');
         } else {
-          console.warn('AI reply generation failed, using template:', aiResult.error);
-          replyContent = this.getTemplateReply(settings);
+          // Fallback to template
+          console.log('AI failed, using template reply');
+          replyContent = this.generateTemplateReply(emailData, settings);
           replyMetadata.aiGenerated = false;
-          replyMetadata.fallbackReason = aiResult.error;
         }
       } else {
-        replyContent = this.getTemplateReply(settings);
-        replyMetadata.aiGenerated = false;
-        this.stats.templateReplies++;
         console.log('Using template reply');
+        replyContent = this.generateTemplateReply(emailData, settings);
+        replyMetadata.aiGenerated = false;
       }
 
       // Personalize the reply if needed
@@ -400,19 +400,10 @@ Personalized Email:`;
         }
       }
 
-      // For testing, just mark as sent without actually sending email
-      console.log('Auto-reply content generated:', replyContent.substring(0, 100) + '...');
+      console.log('Auto-reply content generated:', replyContent.substring ? replyContent.substring(0, 50) + '...' : 'Generated');
       
-      // Update queue status to sent
-      await queueDoc.ref.update({ 
-        status: 'sent',
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
-        replyContent: replyContent,
-        metadata: replyMetadata
-      });
-
-      // Log successful reply
-      await this.logReplyActivity(userId, emailData, replyContent, 'sent', replyMetadata);
+      // 🚀 COMPLETE THE PROCESSING (this is what was missing!)
+      await this.completeAutoReplyProcessing(queueDoc, replyContent, userId, settings);
       
       console.log(`Auto-reply processed successfully for user ${userId}`);
       return { success: true, replyContent };
@@ -420,41 +411,133 @@ Personalized Email:`;
     } catch (error) {
       console.error('Error processing auto-reply:', error);
       
-      const retryCount = (queueDoc.data().retryCount || 0) + 1;
-      const maxRetries = queueDoc.data().maxRetries || 3;
-      
-      if (retryCount < maxRetries) {
-        const retryDelay = Math.pow(2, retryCount) * 60 * 1000; // Exponential backoff
-        const nextRetry = new Date(Date.now() + retryDelay);
-        
-        await queueDoc.ref.update({
-          status: 'retry',
-          retryCount: retryCount,
-          lastError: error.message,
-          nextRetryAt: admin.firestore.Timestamp.fromDate(nextRetry),
-          scheduledFor: admin.firestore.Timestamp.fromDate(nextRetry),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-        
-        console.log(`Auto-reply scheduled for retry ${retryCount}/${maxRetries} at ${nextRetry}`);
-      } else {
-        await queueDoc.ref.update({ 
-          status: 'failed', 
-          error: error.message,
-          retryCount: retryCount,
-          failedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-        console.log('Auto-reply permanently failed for queue:', queueDoc.id);
-      }
+      // Update queue item with error
+      await queueDoc.ref.update({
+        status: 'failed',
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        error: error.message,
+        retryCount: admin.firestore.FieldValue.increment(1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
       
       throw error;
     }
   }
 
   /**
-   * Enhanced auto-reply sending with better email composition
+   * Send auto-reply email using Gmail API
    */
-  async sendAutoReply(userId, originalEmail, replyContent, settings) {
+  async sendAutoReply(userId, originalEmail, replyContent) {
+    try {
+      console.log('🚀 Sending auto-reply via Gmail API...');
+      
+      const emailService = require('./emailService');
+      
+      // Extract reply details
+      const subject = replyContent.subject || `Re: ${originalEmail.subject}`;
+      const body = replyContent.body || replyContent;
+      
+      // Determine reply recipient
+      const replyTo = originalEmail.from;
+      
+      if (!replyTo) {
+        throw new Error('No reply-to address found in original email');
+      }
+      
+      console.log('📧 Auto-reply details:', {
+        to: replyTo,
+        subject: subject,
+        bodyPreview: body.substring(0, 100) + '...'
+      });
+      
+      // Send the auto-reply using the working emailService
+      const result = await emailService.sendEmail({
+        userId: userId,
+        to: [replyTo],
+        subject: subject,
+        html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${body.replace(/\n/g, '<br>')}</div>`,
+        text: body
+      });
+      
+      if (result.success) {
+        console.log('✅ Auto-reply sent successfully via Gmail API');
+        console.log('📨 Message ID:', result.messageId);
+        return result;
+      } else {
+        throw new Error(result.error || 'Failed to send auto-reply');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error sending auto-reply:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Complete the processAutoReply method (this was missing from the truncated file)
+   */
+  async completeAutoReplyProcessing(queueDoc, replyContent, userId, settings) {
+    try {
+      const queueData = queueDoc.data();
+      const emailData = queueData.emailData;
+      
+      console.log('📤 Completing auto-reply processing...');
+      
+      // Send the auto-reply
+      const sendResult = await this.sendAutoReply(userId, emailData, replyContent);
+      
+      // Update queue item status
+      await queueDoc.ref.update({
+        status: 'sent',
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentAt: new Date().toISOString(),
+        result: {
+          success: true,
+          messageId: sendResult.messageId,
+          threadId: sendResult.threadId
+        },
+        replyContent: typeof replyContent === 'string' ? replyContent : replyContent.body,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      console.log('✅ Auto-reply processed successfully for user:', userId);
+      return { success: true, messageId: sendResult.messageId };
+      
+    } catch (error) {
+      console.error('❌ Error completing auto-reply processing:', error);
+      
+      // Update queue item with error
+      await queueDoc.ref.update({
+        status: 'failed',
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        error: error.message,
+        retryCount: admin.firestore.FieldValue.increment(1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Generate template-based reply
+   */
+  generateTemplateReply(emailData, settings) {
+    const template = settings.customMessage || settings.template?.body || 
+                     'Thank you for your email. I will get back to you soon!';
+    
+    const subject = settings.template?.subject || `Re: ${emailData.subject}`;
+    
+    return {
+      subject: subject.replace('{originalSubject}', emailData.subject || 'your email'),
+      body: template
+    };
+  }
+
+  /**
+   * Enhanced auto-reply sending with better email composition (Legacy method - keeping for compatibility)
+   */
+  async sendAutoReplyLegacy(userId, originalEmail, replyContent, settings) {
     try {
       const emailService = require('./emailService');
       
