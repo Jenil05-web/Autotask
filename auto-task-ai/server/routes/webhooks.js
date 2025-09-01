@@ -41,140 +41,173 @@ const isRateLimited = (identifier) => {
   return false;
 };
 
-// Gmail push notification webhook
+// Gmail webhook handler with detailed error logging
 router.post('/gmail', verifyWebhook, async (req, res) => {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   let decodedData = null;
   let userEmail = null;
+  let userId = null;
   
   try {
-    console.log('Gmail webhook received:', {
+    console.log(`🔍 [${requestId}] WEBHOOK DEBUG - Raw request received:`, {
+      method: req.method,
+      url: req.url,
       headers: req.headers,
       body: req.body,
+      query: req.query,
       timestamp: new Date().toISOString(),
       contentType: req.headers['content-type'],
       userAgent: req.headers['user-agent']
     });
     
-    // Validate request structure
-    const message = req.body.message;
-    if (!message || !message.data) {
-      console.error('Invalid webhook message format:', req.body);
+    if (!req.body || !req.body.message) {
+      console.log(`❌ [${requestId}] Invalid webhook payload - missing message`);
       return res.status(400).json({ 
-        error: 'Invalid message format',
-        message: 'Missing message or message.data field'
+        error: 'Invalid payload',
+        requestId
       });
     }
-
-    // Decode the message
+    
+    const message = req.body.message;
+    
+    if (!message.data) {
+      console.log(`❌ [${requestId}] Invalid webhook payload - missing message data`);
+      return res.status(400).json({ 
+        error: 'Invalid message data',
+        requestId
+      });
+    }
+    
+    console.log(`📨 [${requestId}] Gmail webhook received:`, {
+      messageId: message.messageId,
+      publishTime: message.publishTime,
+      hasData: !!message.data
+    });
+    
     try {
-      const decodedString = Buffer.from(message.data, 'base64').toString();
-      decodedData = JSON.parse(decodedString);
-      console.log('Decoded webhook data:', decodedData);
-    } catch (decodeError) {
-      console.error('Failed to decode webhook message:', decodeError);
-      return res.status(400).json({
-        error: 'Failed to decode message',
-        details: decodeError.message
+      // Decode the base64 message data
+      const dataBuffer = Buffer.from(message.data, 'base64');
+      decodedData = JSON.parse(dataBuffer.toString());
+      console.log(`📧 [${requestId}] Decoded webhook data:`, decodedData);
+    } catch (error) {
+      console.error(`❌ [${requestId}] Error decoding webhook data:`, error);
+      return res.status(400).json({ 
+        error: 'Failed to decode message data',
+        details: error.message,
+        requestId
       });
     }
-
-    // Validate decoded data structure
-    if (!decodedData.emailAddress || !decodedData.historyId) {
-      console.error('Invalid decoded data structure:', decodedData);
-      return res.status(400).json({
-        error: 'Invalid notification data',
-        message: 'Missing emailAddress or historyId'
+    
+    const { emailAddress, historyId } = decodedData;
+    
+    if (!emailAddress || !historyId) {
+      console.log(`❌ [${requestId}] Missing required fields in webhook data:`, { emailAddress, historyId });
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        message: 'Missing emailAddress or historyId',
+        requestId
       });
     }
-
-    userEmail = decodedData.emailAddress;
-    console.log('Processing webhook for email:', userEmail);
+    
+    userEmail = emailAddress;
+    console.log(`🔍 [${requestId}] Processing webhook for:`, { emailAddress, historyId });
 
     // Rate limiting check
     if (isRateLimited(userEmail)) {
-      console.warn(`Rate limit exceeded for user: ${userEmail}`);
+      console.warn(`⚠️ [${requestId}] Rate limit exceeded for user: ${userEmail}`);
       return res.status(429).json({
         error: 'Rate limit exceeded',
-        message: 'Too many webhook requests'
+        message: 'Too many webhook requests',
+        requestId
       });
     }
 
     // Find user by email address
-    console.log('Finding user by email:', userEmail);
-    const userId = await findUserByEmail(userEmail);
+    console.log(`🔍 [${requestId}] Finding user by email:`, userEmail);
+    userId = await findUserByEmail(userEmail);
     if (!userId) {
-      console.error(`No user found for email: ${userEmail}`);
+      console.error(`❌ [${requestId}] No user found for email: ${userEmail}`);
       return res.status(404).json({
         error: 'User not found',
-        message: 'No registered user found for this email address'
+        message: 'No registered user found for this email address',
+        requestId
       });
     }
-    console.log('User found:', userId);
+    console.log(`✅ [${requestId}] Found user:`, { userId, email: emailAddress });
 
     // Get user data for tokens
     const userDoc = await firebaseService.db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
-      console.error('User document not found:', userId);
+      console.error(`❌ [${requestId}] User document not found:`, userId);
       throw new Error('User document not found');
     }
 
     const userData = userDoc.data();
-    console.log('User data check:', {
+    console.log(`🔍 [${requestId}] User data check:`, {
       hasGoogleRefreshToken: !!userData.googleRefreshToken,
       hasGmailWatch: !!userData.gmailWatch,
       googleConnected: userData.googleConnected
     });
 
     if (!userData.googleRefreshToken) {
-      console.error('No Google refresh token found for user:', userId);
+      console.error(`❌ [${requestId}] No Google refresh token found for user:`, userId);
       throw new Error('No Google refresh token found for user');
     }
 
-    // Check if gmailWatchService has processHistoryChanges method
-    if (typeof gmailWatchService.processHistoryChanges === 'function') {
-      console.log('Processing history changes via GmailWatchService...');
-      await gmailWatchService.processHistoryChanges(
-        userId,
-        decodedData.historyId,
-        userData.googleAccessToken, // If you have access token
-        userData.googleRefreshToken
-      );
-    } else {
-      console.log('GmailWatchService.processHistoryChanges not found, processing manually...');
-      await processHistoryChangesManually(userId, decodedData.historyId, userData.googleRefreshToken);
-    }
-    
-    // Log successful webhook processing
-    await logWebhookActivity(userId, decodedData, 'success');
-    console.log('Webhook processing completed successfully');
+    // Process the Gmail notification
+    try {
+      // Check if gmailWatchService has processHistoryChanges method
+      if (typeof gmailWatchService.processHistoryChanges === 'function') {
+        console.log(`🔄 [${requestId}] Processing history changes via GmailWatchService...`);
+        await gmailWatchService.processHistoryChanges(
+          userId,
+          decodedData.historyId,
+          userData.googleAccessToken,
+          userData.googleRefreshToken
+        );
+      } else if (typeof gmailWatchService.handleWebhookNotification === 'function') {
+        console.log(`🔄 [${requestId}] Processing via handleWebhookNotification...`);
+        await gmailWatchService.handleWebhookNotification(userId, historyId);
+      } else {
+        console.log(`🔄 [${requestId}] GmailWatchService methods not found, processing manually...`);
+        await processHistoryChangesManually(userId, decodedData.historyId, userData.googleRefreshToken, requestId);
+      }
+      
+      // Log successful webhook processing
+      await logWebhookActivity(userId, decodedData, 'success');
+      console.log(`✅ [${requestId}] Webhook notification processed successfully for user:`, userId);
 
-    res.status(200).json({ 
-      status: 'success',
-      message: 'Webhook processed successfully',
-      historyId: decodedData.historyId,
-      userId: userId
-    });
+      res.status(200).json({ 
+        success: true,
+        message: 'Webhook processed successfully',
+        historyId: decodedData.historyId,
+        userId: userId,
+        requestId
+      });
+
+    } catch (processingError) {
+      console.error(`❌ [${requestId}] Error processing webhook notification:`, processingError);
+      throw processingError;
+    }
 
   } catch (error) {
-    console.error('Gmail webhook error:', error);
-    console.error('Error stack:', error.stack);
+    console.error(`❌ [${requestId}] CRITICAL WEBHOOK ERROR:`, error);
+    console.error(`❌ [${requestId}] Error stack:`, error.stack);
     
     // Log error webhook activity
-    if (userEmail) {
+    if (userEmail && userId) {
       try {
-        const userId = await findUserByEmail(userEmail);
-        if (userId) {
-          await logWebhookActivity(userId, decodedData, 'error', error.message);
-        }
+        await logWebhookActivity(userId, decodedData, 'error', error.message);
       } catch (logError) {
-        console.error('Failed to log webhook error:', logError);
+        console.error(`❌ [${requestId}] Failed to log webhook error:`, logError);
       }
     }
 
     // Don't expose internal errors to client
     res.status(500).json({
       error: 'Internal server error',
-      message: 'Failed to process webhook'
+      message: 'Failed to process webhook',
+      requestId
     });
   }
 });
@@ -182,9 +215,9 @@ router.post('/gmail', verifyWebhook, async (req, res) => {
 /**
  * Manual history processing if gmailWatchService doesn't have the method
  */
-async function processHistoryChangesManually(userId, historyId, refreshToken) {
+async function processHistoryChangesManually(userId, historyId, refreshToken, requestId = 'manual') {
   try {
-    console.log('Processing history changes manually for user:', userId);
+    console.log(`🔄 [${requestId}] Processing history changes manually for user:`, userId);
     
     // Initialize Google OAuth client
     const oauth2Client = new google.auth.OAuth2(
@@ -205,11 +238,11 @@ async function processHistoryChangesManually(userId, historyId, refreshToken) {
     const storedHistoryId = userData.gmailWatch?.historyId;
 
     if (!storedHistoryId) {
-      console.log('No stored history ID found, using current historyId');
+      console.log(`🔍 [${requestId}] No stored history ID found, using current historyId`);
     }
 
     const startHistoryId = storedHistoryId || historyId;
-    console.log(`Fetching history from ${startHistoryId} to ${historyId}`);
+    console.log(`🔍 [${requestId}] Fetching history from ${startHistoryId} to ${historyId}`);
 
     // Fetch history
     const historyResponse = await gmail.users.history.list({
@@ -220,14 +253,14 @@ async function processHistoryChangesManually(userId, historyId, refreshToken) {
     });
 
     const history = historyResponse.data.history || [];
-    console.log(`Found ${history.length} history records`);
+    console.log(`📊 [${requestId}] Found ${history.length} history records`);
 
     // Process each history record
     for (const record of history) {
       if (record.messagesAdded) {
         for (const messageRecord of record.messagesAdded) {
           const message = messageRecord.message;
-          console.log('Processing new message:', message.id);
+          console.log(`📨 [${requestId}] Processing new message:`, message.id);
           
           // Get full message details
           const messageDetails = await gmail.users.messages.get({
@@ -248,16 +281,16 @@ async function processHistoryChangesManually(userId, historyId, refreshToken) {
 
             // Only process if this is an incoming email (not sent by the user)
             if (fromEmail && fromEmail.toLowerCase() !== userEmail?.toLowerCase()) {
-              console.log('Adding incoming email to auto-reply queue:', {
+              console.log(`📥 [${requestId}] Adding incoming email to auto-reply queue:`, {
                 from: fromEmail,
                 subject: subjectHeader?.value,
                 messageId: message.id
               });
 
               // Add to auto-reply queue
-              await addToAutoReplyQueue(userId, messageDetails.data, fromEmail);
+              await addToAutoReplyQueue(userId, messageDetails.data, fromEmail, requestId);
             } else {
-              console.log('Skipping outgoing email from user');
+              console.log(`📤 [${requestId}] Skipping outgoing email from user`);
             }
           }
         }
@@ -270,10 +303,10 @@ async function processHistoryChangesManually(userId, historyId, refreshToken) {
       'gmailWatch.lastProcessed': admin.firestore.FieldValue.serverTimestamp()
     });
 
-    console.log('History processing completed');
+    console.log(`✅ [${requestId}] History processing completed`);
 
   } catch (error) {
-    console.error('Error in manual history processing:', error);
+    console.error(`❌ [${requestId}] Error in manual history processing:`, error);
     throw error;
   }
 }
@@ -281,7 +314,7 @@ async function processHistoryChangesManually(userId, historyId, refreshToken) {
 /**
  * Add email to auto-reply queue
  */
-async function addToAutoReplyQueue(userId, messageData, fromEmail) {
+async function addToAutoReplyQueue(userId, messageData, fromEmail, requestId = 'queue') {
   try {
     const headers = messageData.payload.headers;
     const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
@@ -328,17 +361,18 @@ async function addToAutoReplyQueue(userId, messageData, fromEmail) {
         userId: userId,
         source: 'gmail_webhook'
       });
-console.log('✅ Email added to auto-reply queue:', {
-  queueId: queueRef.id,
-  from: fromEmail,
-  subject: subjectHeader?.value,
-  status: 'pending'
-});
-    console.log('Email added to auto-reply queue:', queueRef.id);
+
+    console.log(`✅ [${requestId}] Email added to auto-reply queue:`, {
+      queueId: queueRef.id,
+      from: fromEmail,
+      subject: subjectHeader?.value,
+      status: 'pending'
+    });
+
     return queueRef.id;
 
   } catch (error) {
-    console.error('Error adding to auto-reply queue:', error);
+    console.error(`❌ [${requestId}] Error adding to auto-reply queue:`, error);
     throw error;
   }
 }
@@ -357,7 +391,7 @@ function extractEmailFromHeader(headerValue) {
  */
 async function findUserByEmail(email) {
   try {
-    console.log('Searching for user with email:', email);
+    console.log('🔍 Searching for user with email:', email);
     
     // First try: Find by main email field
     const usersRef = firebaseService.db.collection('users');
@@ -367,7 +401,7 @@ async function findUserByEmail(email) {
       .get();
 
     if (!querySnapshot.empty) {
-      console.log('Found user by email field');
+      console.log('✅ Found user by email field');
       return querySnapshot.docs[0].id;
     }
 
@@ -378,15 +412,15 @@ async function findUserByEmail(email) {
       .get();
       
     if (!querySnapshot.empty) {
-      console.log('Found user by googleEmail field');
+      console.log('✅ Found user by googleEmail field');
       return querySnapshot.docs[0].id;
     }
 
-    console.log('No user found for email:', email);
+    console.log('❌ No user found for email:', email);
     return null;
     
   } catch (error) {
-    console.error('Error finding user by email:', error);
+    console.error('❌ Error finding user by email:', error);
     return null;
   }
 }
@@ -408,14 +442,14 @@ async function logWebhookActivity(userId, webhookData, status, errorMessage = nu
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         processingTime: Date.now()
       });
-    console.log('Webhook activity logged');
+    console.log('📝 Webhook activity logged');
   } catch (error) {
-    console.error('Error logging webhook activity:', error);
+    console.error('❌ Error logging webhook activity:', error);
     // Don't throw here as it's just logging
   }
 }
 
-// Manual webhook test endpoint - ADDED
+// Manual webhook test endpoint
 router.post('/manual-test/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -428,9 +462,9 @@ router.post('/manual-test/:userId', async (req, res) => {
       testEmail = req.body.testEmail;
     }
     
-    console.log('Manual webhook test started for user:', userId);
-    console.log('Using test email:', testEmail);
-    console.log('Request body:', req.body);
+    console.log('🧪 Manual webhook test started for user:', userId);
+    console.log('📧 Using test email:', testEmail);
+    console.log('📋 Request body:', req.body);
     
     // Add to auto-reply queue with correct Firebase timestamp
     const queueRef = await firebaseService.db
@@ -458,7 +492,7 @@ router.post('/manual-test/:userId', async (req, res) => {
         source: 'manual_test'
       });
     
-    console.log('Manual test completed, queue ID:', queueRef.id);
+    console.log('✅ Manual test completed, queue ID:', queueRef.id);
     
     res.json({
       success: true,
@@ -468,8 +502,8 @@ router.post('/manual-test/:userId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Manual webhook test failed:', error);
-    console.error('Error details:', error.stack);
+    console.error('❌ Manual webhook test failed:', error);
+    console.error('❌ Error details:', error.stack);
     res.status(500).json({
       success: false,
       error: error.message
@@ -477,7 +511,7 @@ router.post('/manual-test/:userId', async (req, res) => {
   }
 });
 
-// Check auto-reply queue status - ADDED
+// Check auto-reply queue status
 router.get('/queue-status/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -535,7 +569,7 @@ router.get('/queue-status/:userId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error checking queue status:', error);
+    console.error('❌ Error checking queue status:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -546,7 +580,7 @@ router.get('/queue-status/:userId', async (req, res) => {
 // Test webhook endpoint for manual testing
 router.post('/test', async (req, res) => {
   try {
-    console.log('Test webhook endpoint called');
+    console.log('🧪 Test webhook endpoint called');
     
     // Simulate a Gmail notification
     const testNotification = {
@@ -562,7 +596,7 @@ router.post('/test', async (req, res) => {
 
     // Process the test notification
     req.body = testNotification;
-    console.log('Forwarding test notification to main webhook handler');
+    console.log('🔄 Forwarding test notification to main webhook handler');
     
     // Call the main webhook handler
     return router.handle({
@@ -572,7 +606,7 @@ router.post('/test', async (req, res) => {
     }, res);
 
   } catch (error) {
-    console.error('Test webhook error:', error);
+    console.error('❌ Test webhook error:', error);
     res.status(500).json({
       error: 'Test webhook failed',
       message: error.message
@@ -606,7 +640,7 @@ router.get('/stats', async (req, res) => {
     
     res.status(200).json(stats);
   } catch (error) {
-    console.error('Error getting webhook stats:', error);
+    console.error('❌ Error getting webhook stats:', error);
     res.status(500).json({ error: 'Failed to get stats' });
   }
 });

@@ -1,6 +1,6 @@
 const { google } = require('googleapis');
 const firebaseService = require('./firebaseAdmin');
-const admin = require('firebase-admin'); // Add this line
+const admin = require('firebase-admin');
 const db = firebaseService.db;
 const { v4: uuidv4 } = require('uuid');
 
@@ -8,66 +8,125 @@ class GmailWatchService {
   constructor() {
     this.gmail = null;
     this.activeWatchers = new Map();
-    this.rateLimitCache = new Map(); // For rate limiting
+    this.rateLimitCache = new Map();
     this.watchExpirationBuffer = 24 * 60 * 60 * 1000; // 24 hours before expiration
-    
   }
 
   async processHistoryChanges(userId, historyId, accessToken, refreshToken) {
-  try {
-    console.log('🔍 Processing history changes for user:', userId);
-    console.log('🔍 History ID:', historyId);
+    try {
+      console.log('🔍 Processing history changes for user:', userId);
+      console.log('🔍 History ID:', historyId);
 
-    const gmail = await this.initializeGmail(accessToken, refreshToken);
-    
-    // Get user's last processed history ID
-    const userDoc = await db.collection('users').doc(userId).get();
-    const userData = userDoc.data();
-    const startHistoryId = userData.gmailWatch?.historyId || historyId;
+      const gmail = await this.initializeGmail(accessToken, refreshToken);
+      
+      const userDoc = await db.collection('users').doc(userId).get();
+      const userData = userDoc.data();
+      const startHistoryId = userData.gmailWatch?.historyId || historyId;
 
-    console.log('🔍 Start history ID:', startHistoryId);
+      console.log('🔍 Start history ID:', startHistoryId);
 
-    // Get history changes
-    const historyResponse = await gmail.users.history.list({
-      userId: 'me',
-      startHistoryId: startHistoryId,
-      labelId: 'INBOX'
-    });
+      const historyResponse = await gmail.users.history.list({
+        userId: 'me',
+        startHistoryId: startHistoryId,
+        labelId: 'INBOX',
+        historyTypes: ['messageAdded']
+      });
 
-    const history = historyResponse.data.history || [];
-    console.log('🔍 History changes found:', history.length);
+      const history = historyResponse.data.history || [];
+      console.log('🔍 History changes found:', history.length);
 
-    for (const historyItem of history) {
-      if (historyItem.messagesAdded) {
-        for (const messageAdded of historyItem.messagesAdded) {
-          const messageId = messageAdded.message.id;
-          console.log('🔍 Processing new message:', messageId);
-          
-          await this.processIncomingEmail(userId, messageId, historyItem.id);
+      for (const historyItem of history) {
+        if (historyItem.messagesAdded) {
+          for (const messageAdded of historyItem.messagesAdded) {
+            const messageId = messageAdded.message.id;
+            console.log('🔍 Processing new message:', messageId);
+            
+            await this.processIncomingEmail(userId, messageId, historyItem.id);
+          }
         }
       }
+
+      await db.collection('users').doc(userId).update({
+        'gmailWatch.historyId': historyId,
+        'gmailWatch.lastActivity': admin.firestore.FieldValue.serverTimestamp()
+      });
+
+    } catch (error) {
+      console.error('❌ Error processing history changes:', error);
+      throw error;
     }
-
-    // Update the last processed history ID
-    await db.collection('users').doc(userId).update({
-      'gmailWatch.historyId': historyId,
-      'gmailWatch.lastActivity': admin.firestore.FieldValue.serverTimestamp()
-    });
-
-  } catch (error) {
-    console.error('❌ Error processing history changes:', error);
-    throw error;
   }
-}
+
   /**
-   * Initialize Gmail API client with OAuth2 credentials
+   * Handle webhook notification from Gmail
    */
+  async handleWebhookNotification(userId, historyId) {
+    try {
+      console.log('🔔 Handling webhook notification for user:', userId, 'historyId:', historyId);
+      
+      // Get user data
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        throw new Error('User not found');
+      }
+      
+      const userData = userDoc.data();
+      if (!userData.googleAccessToken || !userData.googleRefreshToken) {
+        throw new Error('User not connected to Gmail');
+      }
+
+      // Initialize Gmail API
+      const gmail = await this.initializeGmail(
+        userData.googleAccessToken,
+        userData.googleRefreshToken
+      );
+
+      // Get the history to find new messages
+      const lastHistoryId = userData.gmailWatch?.historyId || historyId;
+      
+      console.log('📜 Fetching Gmail history from:', lastHistoryId, 'to:', historyId);
+      
+      const historyResponse = await gmail.users.history.list({
+        userId: 'me',
+        startHistoryId: lastHistoryId,
+        historyTypes: ['messageAdded']
+      });
+
+      const history = historyResponse.data.history || [];
+      console.log('📨 Found', history.length, 'history items');
+
+      // Process new messages
+      for (const historyItem of history) {
+        if (historyItem.messagesAdded) {
+          for (const messageAdded of historyItem.messagesAdded) {
+            const messageId = messageAdded.message.id;
+            console.log('🆕 Processing new message:', messageId);
+            
+            await this.processIncomingEmail(userId, messageId, historyId);
+          }
+        }
+      }
+
+      // Update last history ID
+      await db.collection('users').doc(userId).update({
+        'gmailWatch.historyId': historyId,
+        'gmailWatch.lastActivity': admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      console.log('✅ Webhook notification processed successfully');
+      
+    } catch (error) {
+      console.error('❌ Error handling webhook notification:', error);
+      throw error;
+    }
+  }
+
   async initializeGmail(accessToken, refreshToken) {
     try {
       const oauth2Client = new google.auth.OAuth2(
-        process.env.GMAIL_CLIENT_ID,
-        process.env.GMAIL_CLIENT_SECRET,
-        process.env.GMAIL_REDIRECT_URI
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI
       );
       
       oauth2Client.setCredentials({
@@ -75,10 +134,8 @@ class GmailWatchService {
         refresh_token: refreshToken
       });
 
-      // Handle token refresh automatically
       oauth2Client.on('tokens', async (tokens) => {
         if (tokens.refresh_token) {
-          // Update refresh token in database
           console.log('New refresh token received');
         }
         if (tokens.access_token) {
@@ -94,9 +151,6 @@ class GmailWatchService {
     }
   }
 
-  /**
-   * Setup Gmail push notifications with enhanced error handling and validation
-   */
   async setupEmailWatch(userId, accessToken, refreshToken, options = {}) {
     try {
       if (!userId || !accessToken || !refreshToken) {
@@ -105,14 +159,12 @@ class GmailWatchService {
 
       const gmail = await this.initializeGmail(accessToken, refreshToken);
       
-      // Check if watch already exists and is still valid
       const existingWatch = await this.getExistingWatch(userId);
       if (existingWatch && this.isWatchValid(existingWatch)) {
         console.log(`Valid watch already exists for user ${userId}`);
         return existingWatch;
       }
 
-      // Configure watch request with enhanced options
       const watchRequest = {
         userId: 'me',
         requestBody: {
@@ -124,7 +176,6 @@ class GmailWatchService {
 
       const response = await gmail.users.watch(watchRequest);
       
-      // Store watch details with enhanced metadata
       const watchData = {
         historyId: response.data.historyId,
         expiration: response.data.expiration,
@@ -142,8 +193,6 @@ class GmailWatchService {
       });
 
       this.activeWatchers.set(userId, watchData);
-
-      // Schedule watch renewal before expiration
       this.scheduleWatchRenewal(userId, response.data.expiration);
 
       console.log(`Gmail watch setup successfully for user ${userId}`, {
@@ -154,24 +203,17 @@ class GmailWatchService {
       return response.data;
     } catch (error) {
       console.error('Error setting up Gmail watch:', error);
-      
-      // Log error to database for monitoring
       await this.logWatchError(userId, 'setup', error.message);
-      
       throw new Error(`Failed to setup Gmail watch: ${error.message}`);
     }
   }
 
-  /**
-   * Process incoming email with enhanced parsing and filtering
-   */
   async processIncomingEmail(userId, messageId, historyId) {
     try {
       if (!userId || !messageId) {
         throw new Error('Missing required parameters: userId or messageId');
       }
 
-      // Check rate limiting
       if (this.isRateLimited(userId)) {
         console.log(`Rate limited for user ${userId}, queuing message ${messageId}`);
         await this.queueMessage(userId, messageId, historyId);
@@ -185,39 +227,46 @@ class GmailWatchService {
       }
 
       const userData = userDoc.data();
-      if (!userData.gmailTokens) {
+      if (!userData.googleAccessToken || !userData.googleRefreshToken) {
         console.error(`No Gmail tokens found for user ${userId}`);
         return;
       }
 
       const gmail = await this.initializeGmail(
-        userData.gmailTokens.access_token,
-        userData.gmailTokens.refresh_token
+        userData.googleAccessToken,
+        userData.googleRefreshToken
       );
 
-      // Get the email details with retry logic
       const message = await this.getMessageWithRetry(gmail, messageId);
       if (!message) return;
 
       const email = this.parseEmailData(message.data);
       
-      // Enhanced filtering
+      // Check if this is an incoming email (not sent by user)
+      const userEmail = userData.googleEmail || userData.email;
+      const fromEmail = this.extractEmailFromHeader(email.from);
+      
+      if (fromEmail && fromEmail.toLowerCase() === userEmail?.toLowerCase()) {
+        console.log('Skipping outgoing email from user');
+        return;
+      }
+      
       if (await this.shouldIgnoreEmail(userId, email)) {
         console.log(`Ignoring email ${messageId} based on filters`);
         return;
       }
 
-      // Update last activity
       await this.updateLastActivity(userId);
       
-      // Check if auto-reply should be sent
       const shouldSendAutoReply = await this.checkAutoReplyConditions(userId, email);
       
       if (shouldSendAutoReply) {
+        console.log('🔄 Conditions met, queueing auto-reply for:', email.from);
         await this.queueAutoReply(userId, email);
+      } else {
+        console.log('❌ Auto-reply conditions not met for:', email.from);
       }
 
-      // Store email metadata for analytics
       await this.storeEmailMetadata(userId, email);
 
     } catch (error) {
@@ -226,9 +275,6 @@ class GmailWatchService {
     }
   }
 
-  /**
-   * Enhanced email parsing with better body extraction
-   */
   parseEmailData(messageData) {
     const headers = messageData.payload.headers;
     const getHeader = (name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
@@ -256,9 +302,6 @@ class GmailWatchService {
     };
   }
 
-  /**
-   * Enhanced body extraction supporting both text and HTML
-   */
   extractEmailBody(payload, mimeType = 'text/plain') {
     let body = '';
     
@@ -286,9 +329,6 @@ class GmailWatchService {
     return body;
   }
 
-  /**
-   * Extract attachment information
-   */
   extractAttachments(payload) {
     const attachments = [];
     
@@ -314,12 +354,15 @@ class GmailWatchService {
     return attachments;
   }
 
-  /**
-   * Enhanced auto-reply conditions with more sophisticated filtering
-   */
+  extractEmailFromHeader(headerValue) {
+    if (!headerValue) return null;
+    const emailRegex = /[\w\.-]+@[\w\.-]+\.\w+/;
+    const match = headerValue.match(emailRegex);
+    return match ? match[0] : null;
+  }
+
   async checkAutoReplyConditions(userId, email) {
     try {
-      // Get active auto-reply settings
       const autoReplySnapshot = await db
         .collection('users')
         .doc(userId)
@@ -327,33 +370,36 @@ class GmailWatchService {
         .where('isActive', '==', true)
         .get();
 
-      if (autoReplySnapshot.empty) return false;
+      if (autoReplySnapshot.empty) {
+        console.log('No active auto-reply settings found');
+        return false;
+      }
 
       const settings = autoReplySnapshot.docs[0].data();
 
-      // Check time constraints
       if (settings.scheduleEnabled && !this.isWithinSchedule(settings.schedule)) {
+        console.log('Outside of scheduled hours');
         return false;
       }
 
-      // Check if already replied to this thread
       const threadReplied = await this.hasRepliedToThread(userId, email.threadId);
       if (threadReplied && !settings.allowMultipleReplies) {
+        console.log('Already replied to this thread');
         return false;
       }
 
-      // Check sender filters
       if (settings.senderFilters && !this.matchesSenderFilters(email.from, settings.senderFilters)) {
+        console.log('Sender does not match filters');
         return false;
       }
 
-      // Check subject filters
       if (settings.subjectFilters && !this.matchesSubjectFilters(email.subject, settings.subjectFilters)) {
+        console.log('Subject does not match filters');
         return false;
       }
 
-      // Check if sender is in contacts (avoid auto-replying to known contacts if configured)
       if (settings.excludeContacts && await this.isFromContact(userId, email.from)) {
+        console.log('Email from contact, excluding');
         return false;
       }
 
@@ -364,74 +410,145 @@ class GmailWatchService {
     }
   }
 
-  /**
-   * Enhanced auto-reply queuing with delay and scheduling options
-   */
   async queueAutoReply(userId, email) {
-  try {
-    console.log('🔍 CRITICAL DEBUG: queueAutoReply called for user:', userId);
-    console.log('🔍 Email from:', email.from);
-    console.log('🔍 Email subject:', email.subject);
+    try {
+      console.log('🔍 CRITICAL DEBUG: queueAutoReply called for user:', userId);
+      console.log('🔍 Email from:', email.from);
+      console.log('🔍 Email subject:', email.subject);
 
-    // Get auto-reply settings for delay configuration
-    const settingsSnapshot = await db
-      .collection('users')
-      .doc(userId)
-      .collection('autoReplySettings')
-      .where('isActive', '==', true)
-      .get();
+      const settingsSnapshot = await db
+        .collection('users')
+        .doc(userId)
+        .collection('autoReplySettings')
+        .where('isActive', '==', true)
+        .get();
 
-    console.log('🔍 Settings found:', !settingsSnapshot.empty);
-
-    const settings = settingsSnapshot.docs[0]?.data() || {};
-    const delay = settings.replyDelay || 0; // Default: immediate
-    const scheduledFor = new Date(Date.now() + (delay * 1000));
-
-    console.log('🔍 Creating queue document...');
-
-    const queueData = {
-      emailData: email,
-      originalEmail: email, // Add for backward compatibility
-      status: 'pending',
-      priority: email.subject.toLowerCase().includes('urgent') ? 'high' : 'normal',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      scheduledFor: admin.firestore.Timestamp.fromDate(scheduledFor),
-      retryCount: 0,
-      maxRetries: 3,
-      userId: userId,
-      settings: {
-        template: settings.template || 'default',
-        signature: settings.signature || '',
-        replyToAll: settings.replyToAll || false,
-        useAI: settings.useAI || false
+      if (settingsSnapshot.empty) {
+        console.log('❌ No active auto-reply settings found for user:', userId);
+        return;
       }
-    };
 
-    console.log('🔍 Queue data prepared:', {
-      status: queueData.status,
-      scheduledFor: scheduledFor.toISOString(),
-      hasEmailData: !!queueData.emailData
-    });
+      const settings = settingsSnapshot.docs[0].data();
+      const delay = settings.replyDelay || 0;
+      const scheduledFor = new Date(Date.now() + (delay * 1000));
 
-    const docRef = await db
-      .collection('users')
-      .doc(userId)
-      .collection('autoReplyQueue')
-      .add(queueData);
+      const queueData = {
+        emailData: email,
+        originalEmail: email,
+        status: 'pending',
+        priority: email.subject.toLowerCase().includes('urgent') ? 'high' : 'normal',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        scheduledFor: admin.firestore.Timestamp.fromDate(scheduledFor),
+        retryCount: 0,
+        maxRetries: 3,
+        userId: userId,
+        source: 'gmail_webhook',
+        settings: {
+          template: settings.template || 'default',
+          signature: settings.signature || '',
+          replyToAll: settings.replyToAll || false,
+          useAI: settings.useAI || false
+        }
+      };
 
-    console.log('✅ SUCCESSFULLY queued auto-reply:', docRef.id);
-    console.log('✅ Auto-reply queued for user', userId, 'scheduled for', scheduledFor);
-    
-    return docRef;
-  } catch (error) {
-    console.error('❌ CRITICAL ERROR in queueAutoReply:', error);
-    console.error('❌ Error stack:', error.stack);
-    throw error;
+      const docRef = await db
+        .collection('users')
+        .doc(userId)
+        .collection('autoReplyQueue')
+        .add(queueData);
+
+      console.log('✅ SUCCESSFULLY queued auto-reply:', docRef.id);
+      
+      await this.updateQueueStats(userId, 'queued');
+      
+      return docRef;
+    } catch (error) {
+      console.error('❌ CRITICAL ERROR in queueAutoReply:', error);
+      throw error;
+    }
   }
-}
+
+  /**
+   * Start email watch (alias for setupEmailWatch for compatibility)
+   */
+  async startEmailWatch(userId) {
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        throw new Error('User not found');
+      }
+
+      const userData = userDoc.data();
+      if (!userData.googleAccessToken || !userData.googleRefreshToken) {
+        throw new Error('User not connected to Gmail');
+      }
+
+      console.log('🔄 Starting Gmail watch for user:', userId);
+      return await this.setupEmailWatch(
+        userId, 
+        userData.googleAccessToken, 
+        userData.googleRefreshToken
+      );
+    } catch (error) {
+      console.error('Error starting email watch:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop email watch
+   */
+  async stopEmailWatch(userId) {
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        throw new Error('User not found');
+      }
+
+      const userData = userDoc.data();
+      if (!userData.googleAccessToken || !userData.googleRefreshToken) {
+        throw new Error('User not connected to Gmail');
+      }
+
+      console.log('🛑 Stopping Gmail watch for user:', userId);
+      
+      const gmail = await this.initializeGmail(
+        userData.googleAccessToken, 
+        userData.googleRefreshToken
+      );
+
+      await gmail.users.stop({
+        userId: 'me'
+      });
+
+      await db.collection('users').doc(userId).update({
+        'gmailWatch.isActive': false,
+        'gmailWatch.stoppedAt': admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      this.activeWatchers.delete(userId);
+
+      console.log('✅ Gmail watch stopped for user:', userId);
+      return { success: true };
+    } catch (error) {
+      console.error('Error stopping Gmail watch:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async updateQueueStats(userId, action) {
+    try {
+      const statsRef = db.collection('users').doc(userId).collection('stats').doc('autoReply');
+      await statsRef.set({
+        [action]: admin.firestore.FieldValue.increment(1),
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    } catch (error) {
+      console.error('Error updating queue stats:', error);
+    }
+  }
 
   // Helper methods
-
   async getExistingWatch(userId) {
     const userDoc = await db.collection('users').doc(userId).get();
     return userDoc.exists ? userDoc.data().gmailWatch : null;
@@ -458,7 +575,6 @@ class GmailWatchService {
         console.error(`Attempt ${attempt} failed to get message ${messageId}:`, error.message);
         if (attempt === maxRetries) return null;
         
-        // Exponential backoff
         await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
       }
     }
@@ -467,8 +583,8 @@ class GmailWatchService {
   isRateLimited(userId) {
     const key = `rate_limit_${userId}`;
     const now = Date.now();
-    const windowMs = 60 * 1000; // 1 minute window
-    const maxRequests = 30; // Max 30 requests per minute
+    const windowMs = 60 * 1000;
+    const maxRequests = 30;
     
     if (!this.rateLimitCache.has(key)) {
       this.rateLimitCache.set(key, { count: 1, resetTime: now + windowMs });
@@ -491,7 +607,6 @@ class GmailWatchService {
   }
 
   async shouldIgnoreEmail(userId, email) {
-    // Check if email is from a no-reply address
     const noReplyPatterns = [
       /noreply/i,
       /no-reply/i,
@@ -501,21 +616,15 @@ class GmailWatchService {
       /notification/i
     ];
     
-    if (noReplyPatterns.some(pattern => pattern.test(email.from))) {
-      return true;
-    }
-
-    // Check if email is an auto-reply itself
-    const autoReplyHeaders = ['Auto-Submitted', 'X-Auto-Response-Suppress'];
-    // This would need to be checked in the full headers
-    
-    return false;
+    return noReplyPatterns.some(pattern => pattern.test(email.from));
   }
 
   isWithinSchedule(schedule) {
+    if (!schedule) return true;
+    
     const now = new Date();
     const currentHour = now.getHours();
-    const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const currentDay = now.getDay();
     
     return schedule.days.includes(currentDay) && 
            currentHour >= schedule.startHour && 
@@ -523,6 +632,8 @@ class GmailWatchService {
   }
 
   matchesSenderFilters(from, filters) {
+    if (!filters || filters.length === 0) return true;
+    
     return filters.some(filter => {
       if (filter.type === 'domain') {
         return from.includes(`@${filter.value}`);
@@ -535,6 +646,8 @@ class GmailWatchService {
   }
 
   matchesSubjectFilters(subject, filters) {
+    if (!filters || filters.length === 0) return true;
+    
     return filters.some(filter => {
       const regex = new RegExp(filter.pattern, filter.flags || 'i');
       return regex.test(subject);
@@ -554,8 +667,7 @@ class GmailWatchService {
   }
 
   async isFromContact(userId, fromEmail) {
-    // This would integrate with Google Contacts API
-    // For now, return false
+    // Implement contact checking logic here
     return false;
   }
 
@@ -613,11 +725,11 @@ class GmailWatchService {
       
       if (userDoc.exists) {
         const userData = userDoc.data();
-        if (userData.gmailTokens) {
+        if (userData.googleAccessToken && userData.googleRefreshToken) {
           await this.setupEmailWatch(
             userId,
-            userData.gmailTokens.access_token,
-            userData.gmailTokens.refresh_token
+            userData.googleAccessToken,
+            userData.googleRefreshToken
           );
         }
       }
@@ -627,19 +739,22 @@ class GmailWatchService {
   }
 
   async logWatchError(userId, operation, errorMessage) {
-    await db
-      .collection('users')
-      .doc(userId)
-      .collection('watchErrors')
-      .add({
-        operation,
-        error: errorMessage,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-      });
+    try {
+      await db
+        .collection('users')
+        .doc(userId)
+        .collection('watchErrors')
+        .add({
+          operation,
+          error: errorMessage,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (error) {
+      console.error('Error logging watch error:', error);
+    }
   }
 
   // Public methods for management
-
   async stopWatch(userId) {
     try {
       const userDoc = await db.collection('users').doc(userId).get();
@@ -649,8 +764,8 @@ class GmailWatchService {
       if (!userData.gmailWatch || !userData.gmailWatch.isActive) return;
 
       const gmail = await this.initializeGmail(
-        userData.gmailTokens.access_token,
-        userData.gmailTokens.refresh_token
+        userData.googleAccessToken,
+        userData.googleRefreshToken
       );
 
       await gmail.users.stop({ userId: 'me' });
