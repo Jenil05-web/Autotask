@@ -4,6 +4,7 @@ const admin = require('firebase-admin');
 const db = firebaseService.db;
 const { v4: uuidv4 } = require('uuid');
 
+
 class GmailWatchService {
   constructor() {
     this.gmail = null;
@@ -802,4 +803,4 @@ class GmailWatchService {
   }
 }
 
-module.exports = new GmailWatchService();
+module.exports = GmailWatchService;

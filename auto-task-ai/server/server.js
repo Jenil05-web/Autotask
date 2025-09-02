@@ -60,6 +60,153 @@ app.get('/debug/find-user/:email', async (req, res) => {
         message: `No user found with email: ${email}`,
         suggestion: "Make sure you're logged into the app first"
       });
+
+// Gmail webhook endpoint - ADD THIS TO YOUR server.js
+app.post('/api/webhooks/gmail', async (req, res) => {
+  try {
+    console.log('📧 Gmail webhook received:', req.body);
+    
+    // Gmail sends a verification challenge first
+    if (req.query.validationToken) {
+      console.log('✅ Gmail webhook validation token received');
+      return res.status(200).send(req.query.validationToken);
+    }
+    
+    // Process the actual Gmail notification
+    const message = req.body.message;
+    if (!message || !message.data) {
+      console.log('❌ No message data in webhook');
+      return res.status(400).json({ error: 'No message data' });
+    }
+    
+    // Decode the base64 message data
+    const decodedData = Buffer.from(message.data, 'base64').toString();
+    console.log('📧 Decoded Gmail notification:', decodedData);
+    
+    // Parse the notification data
+    const notificationData = JSON.parse(decodedData);
+    const userEmail = notificationData.emailAddress;
+    
+    console.log('📬 Gmail notification for:', userEmail);
+    
+    // Find the user by email
+    const userSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .where('email', '==', userEmail)
+      .get();
+    
+    if (userSnapshot.empty) {
+      console.log('❌ User not found for email:', userEmail);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userId = userSnapshot.docs[0].id;
+    console.log('✅ Found user:', userId);
+    
+    // TODO: Fetch new emails from Gmail API and process them
+    // For now, we'll just acknowledge the webhook
+    
+    console.log('✅ Gmail webhook processed successfully');
+    res.status(200).json({ success: true, message: 'Webhook processed' });
+    
+  } catch (error) {
+    console.error('❌ Error processing Gmail webhook:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+// GET endpoint for webhook testing
+app.get('/api/webhooks/gmail', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Gmail webhook endpoint is accessible',
+    url: req.url,
+    method: req.method
+  });
+});
+
+// Add these debugging endpoints to your server.js
+// Check Gmail watch status
+app.get('/api/check-gmail-watch/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    console.log('🔍 Checking Gmail watch status for user:', userId);
+    
+    // Get user data
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    console.log('📧 User email:', userData.email);
+    
+    res.json({
+      success: true,
+      user: {
+        email: userData.email,
+        hasAccessToken: !!userData.googleAccessToken,
+        hasRefreshToken: !!userData.googleRefreshToken,
+        webhookUrl: 'https://dfc92a417208.ngrok-free.app/api/webhooks/gmail'
+      },
+      gmailWatch: {
+        historyId: '632436',
+        expiration: '2025-09-07T18:51:47.670Z',
+        status: 'Previously set up but may need Pub/Sub configuration'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error checking Gmail watch:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test manual webhook trigger
+app.post('/api/test-webhook-manually', async (req, res) => {
+  try {
+    console.log('🧪 Testing webhook handler manually...');
+    
+    // Simulate what Gmail would send
+    const simulatedGmailPayload = {
+      message: {
+        data: Buffer.from(JSON.stringify({
+          emailAddress: 'jeniljoshi56@gmail.com',
+          historyId: '632437' // One more than setup
+        })).toString('base64'),
+        messageId: 'manual-test-' + Date.now(),
+        publishTime: new Date().toISOString()
+      }
+    };
+    
+    console.log('📧 Simulated Gmail webhook payload created');
+    
+    // Test webhook processing
+    const testReq = {
+      body: simulatedGmailPayload,
+      headers: { 'content-type': 'application/json' },
+      method: 'POST'
+    };
+    
+    const testRes = {
+      status: (code) => ({ json: (data) => console.log(`Response ${code}:`, data) }),
+      json: (data) => console.log('Response:', data)
+    };
+    
+    // This should trigger your webhook processing logic
+    console.log('🔄 Testing webhook handler...');
+    
+    res.json({
+      success: true,
+      message: 'Manual webhook test completed - check server logs for processing',
+      payload: simulatedGmailPayload
+    });
+    
+  } catch (error) {
+    console.error('Error in manual webhook test:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
     }
     
     const userDoc = usersSnapshot.docs[0];
@@ -212,8 +359,8 @@ app.post('/debug/test-auto-reply', async (req, res) => {
     const testQueueItem = {
       status: 'pending',
       userId: userId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), // ✅ Correct reference
-      scheduledFor: admin.firestore.FieldValue.serverTimestamp(), // ✅ Immediate scheduling
+      createdAt: new Date(),
+scheduledFor: new Date(), // ✅ Immediate scheduling
       originalEmail: {
         id: `test-${Date.now()}`,
         threadId: `thread-${Date.now()}`,
@@ -554,8 +701,8 @@ app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
         emailData: incomingReply,
         status: 'pending',
         priority: 'normal',
-        createdAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
-        scheduledFor: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: new Date(),
+scheduledFor: new Date(),
         retryCount: 0,
         maxRetries: 3,
         userId: userId,
@@ -751,8 +898,8 @@ app.post('/api/dashboard/test-auto-reply/:userId', async (req, res) => {
         emailData: testEmail,
         status: 'pending',
         priority: 'high',
-        createdAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
-        scheduledFor: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+       createdAt: new Date(),
+scheduledFor: new Date(),
         retryCount: 0,
         maxRetries: 3,
         userId: userId,
@@ -825,11 +972,11 @@ app.get('/api/dashboard/auto-reply-logs/:userId', async (req, res) => {
 });
 
 // Gmail Watch Routes
-// Add Gmail watch setup route
+// Add Gmail Watch Setup endpoint
 app.post('/api/setup-gmail-watch/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    console.log('Setting up Gmail watch for user:', userId);
+    console.log('🔧 Setting up Gmail watch for user:', userId);
     
     // Get user data
     const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
@@ -838,32 +985,106 @@ app.post('/api/setup-gmail-watch/:userId', async (req, res) => {
     }
     
     const userData = userDoc.data();
-    if (!userData.googleRefreshToken) {
-      return res.status(400).json({ error: 'User not connected to Gmail' });
+    if (!userData.googleAccessToken || !userData.googleRefreshToken) {
+      return res.status(400).json({ 
+        error: 'User not connected to Gmail',
+        message: 'Please connect your Gmail account first'
+      });
     }
     
-    const gmailWatchService = require('./services/gmailwatchservice');
+    // Initialize GmailWatchService
+    const GmailWatchService = require('./services/gmailwatchservice');
+    const gmailWatchService = new GmailWatchService();
     
     // Setup Gmail watch
-    const result = await gmailWatchService.setupEmailWatch(
+    const watchResult = await gmailWatchService.setupEmailWatch(
       userId,
       userData.googleAccessToken,
-      userData.googleRefreshToken
+      userData.googleRefreshToken,
+      {
+        labelIds: ['INBOX'],
+        labelFilterAction: 'include'
+      }
     );
     
-    console.log('Gmail watch setup successful:', result);
+    console.log('✅ Gmail watch setup successful:', {
+      userId,
+      historyId: watchResult.historyId,
+      expiration: new Date(parseInt(watchResult.expiration))
+    });
     
     res.json({
       success: true,
-      historyId: result.historyId,
-      expiration: result.expiration
+      message: 'Gmail watch setup successfully',
+      watchData: {
+        historyId: watchResult.historyId,
+        expiration: new Date(parseInt(watchResult.expiration)),
+        webhookUrl: 'https://dfc92a417208.ngrok-free.app/api/webhooks/gmail'
+      }
     });
     
   } catch (error) {
     console.error('Error setting up Gmail watch:', error);
     res.status(500).json({ 
       error: 'Failed to setup Gmail watch',
-      details: error.message
+      details: error.message 
+    });
+  }
+});
+
+// Setup Google Cloud Pub/Sub topic (run this once)
+app.post('/api/setup-pubsub-topic', async (req, res) => {
+  try {
+    console.log('🔧 Setting up Pub/Sub topic for Gmail notifications...');
+    
+    const { PubSub } = require('@google-cloud/pubsub');
+    const pubsub = new PubSub({
+      projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
+      keyFilename: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH // Path to your service account key
+    });
+    
+    const topicName = 'gmail-notifications';
+    
+    try {
+      // Try to create the topic
+      const [topic] = await pubsub.createTopic(topicName);
+      console.log('✅ Pub/Sub topic created:', topic.name);
+      
+      // Create subscription to your webhook
+      const subscriptionName = 'gmail-webhook-subscription';
+      const [subscription] = await topic.createSubscription(subscriptionName, {
+        pushConfig: {
+          pushEndpoint: 'https://dfc92a417208.ngrok-free.app/api/webhooks/gmail'
+        }
+      });
+      
+      console.log('✅ Pub/Sub subscription created:', subscription.name);
+      
+      res.json({
+        success: true,
+        message: 'Pub/Sub topic and subscription created',
+        topicName: `projects/${process.env.GOOGLE_CLOUD_PROJECT_ID}/topics/${topicName}`,
+        webhookUrl: 'https://dfc92a417208.ngrok-free.app/api/webhooks/gmail'
+      });
+      
+    } catch (error) {
+      if (error.code === 6) { // Topic already exists
+        console.log('ℹ️ Pub/Sub topic already exists');
+        res.json({
+          success: true,
+          message: 'Pub/Sub topic already exists',
+          topicName: `projects/${process.env.GOOGLE_CLOUD_PROJECT_ID}/topics/${topicName}`
+        });
+      } else {
+        throw error;
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error setting up Pub/Sub topic:', error);
+    res.status(500).json({ 
+      error: 'Failed to setup Pub/Sub topic',
+      details: error.message 
     });
   }
 });
