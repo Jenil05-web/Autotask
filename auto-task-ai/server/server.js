@@ -43,8 +43,7 @@ autoReplyScheduler.start();
 // Debug endpoints
 app.get('/debug/find-user/:email', async (req, res) => {
   try {
-    const { email } = req.params.toLowerCase();
-    const firebaseAdmin = require('./services/firebaseAdmin');
+    const email = req.params.email.toLowerCase();
     
     console.log(`🔍 Searching for user with email: ${email}`);
     
@@ -60,8 +59,26 @@ app.get('/debug/find-user/:email', async (req, res) => {
         message: `No user found with email: ${email}`,
         suggestion: "Make sure you're logged into the app first"
       });
+    }
+    
+    const userDoc = usersSnapshot.docs[0];
+    const userData = userDoc.data();
+    
+    res.json({
+      found: true,
+      userId: userDoc.id,
+      email: userData.email,
+      hasGmailTokens: !!userData.gmailTokens,
+      gmailConnected: !!userData.gmailTokens?.access_token,
+      autoReplyConfigured: userData.autoReplyEnabled || false
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-// Gmail watch setup - ADD TO server.js
+// Gmail watch setup endpoint
 app.post('/api/setup-gmail-watch-final/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -130,7 +147,7 @@ app.post('/api/setup-gmail-watch-final/:userId', async (req, res) => {
   }
 });
 
-// Gmail webhook endpoint - ADD THIS TO YOUR server.js
+// Gmail webhook endpoint
 app.post('/api/webhooks/gmail', async (req, res) => {
   try {
     console.log('📧 Gmail webhook received:', req.body);
@@ -194,7 +211,6 @@ app.get('/api/webhooks/gmail', (req, res) => {
   });
 });
 
-// Add these debugging endpoints to your server.js
 // Check Gmail watch status
 app.get('/api/check-gmail-watch/:userId', async (req, res) => {
   try {
@@ -276,30 +292,11 @@ app.post('/api/test-webhook-manually', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-    }
-    
-    const userDoc = usersSnapshot.docs[0];
-    const userData = userDoc.data();
-    
-    res.json({
-      found: true,
-      userId: userDoc.id,
-      email: userData.email,
-      hasGmailTokens: !!userData.gmailTokens,
-      gmailConnected: !!userData.gmailTokens?.access_token,
-      autoReplyConfigured: userData.autoReplyEnabled || false
-    });
-    
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // Fixed auto-reply status check endpoint
 app.get('/debug/auto-reply-status', async (req, res) => {
   try {
     const userId = 'YYaZizyXAkQbunFdL11LQGXl2z82'; // Your specific user ID
-    const firebaseAdmin = require('./services/firebaseAdmin');
     
     console.log('🔍 Checking auto-reply status for user:', userId);
     
@@ -395,32 +392,13 @@ app.get('/debug/auto-reply-status', async (req, res) => {
   }
 });
 
-app.post('/debug/setup-webhook', async (req, res) => {
-  try {
-    const userId = 'YYaZizyXAkQbunFdL11LQGXl2z82';
-    const firebaseAdmin = require('./services/firebaseAdmin');
-    
-    // Update user to simulate Gmail watch
-    await firebaseAdmin.db.collection('users').doc(userId).update({
-      gmailWatch: {
-        isActive: true,
-        setupAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
-        expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      }
-    });
-    
-    res.json({ success: true, message: 'Gmail watch simulated' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+
 
 // Fixed test endpoint to manually add item to auto-reply queue
 app.post('/debug/test-auto-reply', async (req, res) => {
   try {
     const userId = 'YYaZizyXAkQbunFdL11LQGXl2z82'; // Your specific user ID
-    const firebaseAdmin = require('./services/firebaseAdmin');
-    const admin = require('firebase-admin'); // Import admin directly for FieldValue
+    const admin = require('firebase-admin');
     
     console.log('🧪 Adding test item to auto-reply queue for user:', userId);
     
@@ -428,8 +406,8 @@ app.post('/debug/test-auto-reply', async (req, res) => {
     const testQueueItem = {
       status: 'pending',
       userId: userId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), // ✅ Correct reference
-      scheduledFor: admin.firestore.FieldValue.serverTimestamp(), // ✅ Immediate scheduling
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      scheduledFor: admin.firestore.FieldValue.serverTimestamp(),
       originalEmail: {
         id: `test-${Date.now()}`,
         threadId: `thread-${Date.now()}`,
@@ -445,7 +423,7 @@ app.post('/debug/test-auto-reply', async (req, res) => {
     };
     
     // Add to queue using the correct db reference
-    const queueRef = await firebaseAdmin.db // ✅ Correct db reference
+    const queueRef = await firebaseAdmin.db
       .collection('users')
       .doc(userId)
       .collection('autoReplyQueue')
@@ -594,7 +572,7 @@ app.post('/api/simulate-gmail-webhook/:userId', async (req, res) => {
   }
 });
 
-// Complete Gmail webhook simulation endpoint (REPLACE the existing one)
+// Complete Gmail webhook simulation endpoint
 app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -613,11 +591,13 @@ app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
       messageId: `<sim-${Date.now()}@example.com>`,
       snippet: 'This is a simulated email to test auto-reply...'
     };
+    
     console.log('📧 Created test email:', {
       from: testEmail.from,
       subject: testEmail.subject,
       id: testEmail.id
     });
+    
     // Check if user has active auto-reply settings
     const settingsSnapshot = await firebaseAdmin.db
       .collection('users')
@@ -625,6 +605,7 @@ app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
       .collection('autoReplySettings')
       .where('isActive', '==', true)
       .get();
+    
     if (settingsSnapshot.empty) {
       console.log('❌ No active auto-reply settings found');
       return res.json({
@@ -633,25 +614,28 @@ app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
         step: 'check_settings'
       });
     }
+    
     const settings = settingsSnapshot.docs[0].data();
     console.log('✅ Found auto-reply settings:', {
       hasTemplate: !!settings.template,
       isActive: settings.isActive,
       delay: settings.delay || 0
     });
+    
     // Add email to auto-reply queue (simulate what the real webhook would do)
     const queueData = {
       emailData: testEmail,
-      status: 'pending',  // Use 'pending' for immediate processing
+      status: 'pending',
       priority: 'normal',
       createdAt: new Date(),
-      scheduledFor: new Date(), // Schedule immediately for testing
+      scheduledFor: new Date(),
       retryCount: 0,
       maxRetries: 3,
       userId: userId,
       source: 'webhook_simulation',
       settingsId: settingsSnapshot.docs[0].id
     };
+    
     console.log('💾 Adding email to auto-reply queue...');
     
     const queueRef = await firebaseAdmin.db
@@ -659,7 +643,9 @@ app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
       .doc(userId)
       .collection('autoReplyQueue')
       .add(queueData);
+    
     console.log('✅ Email added to queue with ID:', queueRef.id);
+    
     // Return success response
     res.json({
       success: true,
@@ -669,6 +655,7 @@ app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
       emailSubject: testEmail.subject,
       step: 'email_queued'
     });
+    
   } catch (error) {
     console.error('❌ Error in webhook simulation:', error);
     res.status(500).json({
@@ -680,7 +667,7 @@ app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
   }
 });
 
-// Add the missing test auto-reply queue endpoint
+// Test auto-reply queue endpoint
 app.post('/api/test-auto-reply-queue', async (req, res) => {
   try {
     const AIReplyService = require('./services/aiReplyService');
@@ -710,10 +697,10 @@ app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
     const { 
-      fromEmail,           // Who is replying
-      toEmail,            // Your email (who receives the reply)
-      originalSubject,    // Subject of the original email
-      replyMessage        // Content of the reply (optional)
+      fromEmail,
+      toEmail,
+      originalSubject,
+      replyMessage
     } = req.body;
     
     // Validate required parameters
@@ -732,18 +719,20 @@ app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
     const incomingReply = {
       id: 'incoming-reply-' + Date.now(),
       threadId: 'reply-thread-' + Date.now(),
-      from: fromEmail,                    // Dynamic sender
-      to: toEmail,                       // Dynamic recipient (your email)
-      subject: `Re: ${originalSubject}`, // Dynamic subject
+      from: fromEmail,
+      to: toEmail,
+      subject: `Re: ${originalSubject}`,
       body: replyMessage || `Thank you for your email about "${originalSubject}". I wanted to follow up on this matter.`,
       date: new Date().toISOString(),
       messageId: `incoming-reply-${Date.now()}@${fromEmail.split('@')[1] || 'example.com'}`
     };
+    
     console.log('✅ Created simulated reply:', {
       from: incomingReply.from,
       to: incomingReply.to,
       subject: incomingReply.subject
     });
+    
     // Check if user has active auto-reply settings for this email context
     const settingsSnapshot = await firebaseAdmin.db
       .collection('users')
@@ -752,6 +741,7 @@ app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
       .where('isActive', '==', true)
       .where('triggerCondition', '==', 'incoming_reply_only')
       .get();
+    
     if (settingsSnapshot.empty) {
       console.log('❌ No active auto-reply settings found for this user');
       return res.json({
@@ -760,7 +750,9 @@ app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
         incomingReply: incomingReply
       });
     }
+    
     console.log(`✅ Found ${settingsSnapshot.size} active auto-reply settings`);
+    
     // Add to auto-reply queue
     const queueRef = await firebaseAdmin.db
       .collection('users')
@@ -778,6 +770,7 @@ app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
         source: 'simulated_incoming_reply',
         settingsUsed: settingsSnapshot.docs[0].id
       });
+    
     console.log('✅ Incoming reply added to auto-reply queue:', queueRef.id);
     
     res.json({
@@ -916,7 +909,7 @@ app.get('/api/dashboard/auto-reply-status/:userId', async (req, res) => {
 app.post('/api/dashboard/process-auto-replies/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    console.log('🎛️ Dashboard triggered auto-reply processing for user:', userId);
+    console.log('Dashboard triggered auto-reply processing for user:', userId);
     
     const AIReplyService = require('./services/aiReplyService');
     const aiReplyService = new AIReplyService();
@@ -944,7 +937,7 @@ app.post('/api/dashboard/process-auto-replies/:userId', async (req, res) => {
 app.post('/api/dashboard/test-auto-reply/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    console.log('🧪 Dashboard testing auto-reply for user:', userId);
+    console.log('Dashboard testing auto-reply for user:', userId);
     
     // Create a test email
     const testEmail = {
@@ -975,7 +968,7 @@ app.post('/api/dashboard/test-auto-reply/:userId', async (req, res) => {
         source: 'dashboard_test'
       });
 
-    console.log('✅ Test email added to queue from dashboard:', queueRef.id);
+    console.log('Test email added to queue from dashboard:', queueRef.id);
     
     res.json({
       success: true,
@@ -1040,12 +1033,416 @@ app.get('/api/dashboard/auto-reply-logs/:userId', async (req, res) => {
   }
 });
 
+// Gmail watch setup with latest ngrok URL
+app.post('/api/setup-gmail-watch-latest/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const currentNgrokUrl = 'https://a01d88479ce5.ngrok-free.app'; // UPDATED URL
+    
+    console.log('Setting up Gmail watch for user:', userId);
+    console.log('Using ngrok URL:', currentNgrokUrl);
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      access_token: userData.googleAccessToken,
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    oauth2Client.setCredentials(credentials);
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    try {
+      await gmail.users.stop({ userId: 'me' });
+      console.log('Stopped existing Gmail watch');
+    } catch (error) {
+      console.log('No existing watch to stop');
+    }
+    
+    const watchResponse = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        labelIds: ['INBOX'],
+        topicName: 'projects/auto-task-ai-436014/topics/gmail-notifications'
+      }
+    });
+    
+    console.log('Gmail watch setup completed with latest URL');
+    
+    res.json({
+      success: true,
+      message: 'Gmail watch configured with latest ngrok URL',
+      watchData: {
+        historyId: watchResponse.data.historyId,
+        expiration: new Date(parseInt(watchResponse.data.expiration)),
+        webhookUrl: `${currentNgrokUrl}/api/webhooks/gmail`
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error setting up Gmail watch:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// Final Gmail watch setup with current URL
+app.post('/api/setup-gmail-watch-fixed/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const currentNgrokUrl = 'https://a01d88479ce5.ngrok-free.app';
+    
+    console.log('🔧 Setting up Gmail watch for user:', userId);
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      access_token: userData.googleAccessToken,
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    oauth2Client.setCredentials(credentials);
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // Stop existing watch
+    try {
+      await gmail.users.stop({ userId: 'me' });
+      console.log('📛 Stopped existing Gmail watch');
+    } catch (error) {
+      console.log('ℹ️ No existing watch to stop');
+    }
+    
+    // Start new watch
+    const watchResponse = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        labelIds: ['INBOX'],
+        topicName: 'projects/autotask-ai-51314/topics/gmail-notifications'
+      }
+    });
+    
+    console.log('✅ Gmail watch setup completed - ready for real email notifications');
+    
+    res.json({
+      success: true,
+      message: 'Gmail watch configured successfully - Auto-reply system is now LIVE!',
+      watchData: {
+        historyId: watchResponse.data.historyId,
+        expiration: new Date(parseInt(watchResponse.data.expiration)),
+        webhookUrl: `${currentNgrokUrl}/api/webhooks/gmail`,
+         projectId: 'autotask-ai-51314'
+      },
+      status: 'READY FOR REAL EMAIL AUTO-REPLIES'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error setting up Gmail watch:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// EMERGENCY STOP Gmail watch
+app.post('/api/stop-gmail-watch/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    console.log('🛑 EMERGENCY STOP - Stopping Gmail watch for user:', userId);
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      access_token: userData.googleAccessToken,
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    oauth2Client.setCredentials(credentials);
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // Stop Gmail watch
+    await gmail.users.stop({ userId: 'me' });
+    
+    // Update user document
+    await firebaseAdmin.db.collection('users').doc(userId).update({
+      'gmailWatch.isActive': false,
+      'gmailWatch.stoppedAt': firebaseAdmin.admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    console.log('✅ Gmail watch STOPPED successfully');
+    
+    res.json({
+      success: true,
+      message: 'Gmail watch stopped - no more auto-replies will be triggered',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Error stopping Gmail watch:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// FINAL Gmail watch setup - add this to server.js
+app.post('/api/fix-gmail-watch/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const ngrokUrl = 'https://a01d88479ce5.ngrok-free.app';
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      access_token: userData.googleAccessToken,
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    oauth2Client.setCredentials(credentials);
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // Stop existing watch
+    try {
+      await gmail.users.stop({ userId: 'me' });
+    } catch (e) {}
+    
+    // Start new watch
+    const watchResponse = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        labelIds: ['INBOX'],
+        topicName: 'projects/autotask-ai-51314/topics/gmail-notifications'
+      }
+    });
+    
+    console.log('✅ Gmail watch FINALLY configured!');
+    
+    res.json({
+      success: true,
+      message: '🎉 Gmail watch is NOW active! Reply to your emails to trigger auto-replies.',
+      historyId: watchResponse.data.historyId,
+      webhookUrl: `${ngrokUrl}/api/webhooks/gmail`
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Gmail watch setup for current ngrok URL
+app.post('/api/setup-gmail-watch-current/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const currentNgrokUrl = 'https://a6e335db63ec.ngrok-free.app';
+    
+    console.log('Setting up Gmail watch for real-time notifications');
+    console.log('Current ngrok URL:', currentNgrokUrl);
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      access_token: userData.googleAccessToken,
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    oauth2Client.setCredentials(credentials);
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // Stop existing watch
+    try {
+      await gmail.users.stop({ userId: 'me' });
+      console.log('Stopped any existing Gmail watch');
+    } catch (error) {
+      console.log('No existing watch to stop (this is fine)');
+    }
+    
+    // Start new watch with current URL
+    const watchResponse = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        labelIds: ['INBOX'],
+        topicName: 'projects/auto-task-ai-436014/topics/gmail-notifications'
+      }
+    });
+    
+    console.log('Gmail watch configured for real-time notifications');
+    console.log('Webhook URL:', `${currentNgrokUrl}/api/webhooks/gmail`);
+    
+    res.json({
+      success: true,
+      message: 'Gmail watch configured for real-time auto-replies',
+      config: {
+        historyId: watchResponse.data.historyId,
+        expiration: new Date(parseInt(watchResponse.data.expiration)),
+        webhookUrl: `${currentNgrokUrl}/api/webhooks/gmail`,
+        status: 'Real-time notifications active'
+      },
+      testing: {
+        next: 'Send test email to jeniljoshi56@gmail.com',
+        expect: 'Real-time auto-reply should be triggered'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Gmail watch setup failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// Clear stuck auto-reply queue items
+app.post('/api/clear-stuck-queue/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    console.log('🧹 Clearing stuck auto-reply queue items for user:', userId);
+    
+    // Get all pending queue items
+    const queueSnapshot = await firebaseAdmin.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .where('status', '==', 'pending')
+      .get();
+    
+    const batch = firebaseAdmin.db.batch();
+    let clearedCount = 0;
+    
+    queueSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+      clearedCount++;
+    });
+    
+    await batch.commit();
+    
+    console.log(`✅ Cleared ${clearedCount} stuck queue items`);
+    
+    res.json({
+      success: true,
+      message: `Cleared ${clearedCount} stuck auto-reply queue items`,
+      clearedCount: clearedCount
+    });
+    
+  } catch (error) {
+    console.error('❌ Error clearing queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// Force Gmail token update in Firebase
+app.post('/api/force-update-gmail-tokens/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    console.log('🔧 Force updating Gmail tokens for user:', userId);
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    // Get fresh tokens
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    
+    // Force update the user document with new tokens
+    await firebaseAdmin.db.collection('users').doc(userId).update({
+      googleAccessToken: credentials.access_token,
+      googleTokenExpiry: credentials.expiry_date,
+      googleTokensValid: true,
+      hasGmailTokens: true,
+      tokenUpdatedAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    console.log('✅ Gmail tokens force updated in Firebase');
+    
+    res.json({
+      success: true,
+      message: 'Gmail tokens force updated successfully',
+      hasAccessToken: !!credentials.access_token,
+      expiresAt: credentials.expiry_date,
+      tokensValid: true
+    });
+    
+  } catch (error) {
+    console.error('❌ Error force updating Gmail tokens:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Gmail Watch Routes
 // Add Gmail Watch Setup endpoint
 app.post('/api/setup-gmail-watch/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    console.log('🔧 Setting up Gmail watch for user:', userId);
+    console.log('Setting up Gmail watch for user:', userId);
     
     // Get user data
     const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
@@ -1076,7 +1473,7 @@ app.post('/api/setup-gmail-watch/:userId', async (req, res) => {
       }
     );
     
-    console.log('✅ Gmail watch setup successful:', {
+    console.log('Gmail watch setup successful:', {
       userId,
       historyId: watchResult.historyId,
       expiration: new Date(parseInt(watchResult.expiration))
@@ -1104,7 +1501,7 @@ app.post('/api/setup-gmail-watch/:userId', async (req, res) => {
 // Setup Google Cloud Pub/Sub topic (run this once)
 app.post('/api/setup-pubsub-topic', async (req, res) => {
   try {
-    console.log('🔧 Setting up Pub/Sub topic for Gmail notifications...');
+    console.log('Setting up Pub/Sub topic for Gmail notifications...');
     
     const { PubSub } = require('@google-cloud/pubsub');
     const pubsub = new PubSub({
@@ -1117,7 +1514,7 @@ app.post('/api/setup-pubsub-topic', async (req, res) => {
     try {
       // Try to create the topic
       const [topic] = await pubsub.createTopic(topicName);
-      console.log('✅ Pub/Sub topic created:', topic.name);
+      console.log('Pub/Sub topic created:', topic.name);
       
       // Create subscription to your webhook
       const subscriptionName = 'gmail-webhook-subscription';
@@ -1127,7 +1524,7 @@ app.post('/api/setup-pubsub-topic', async (req, res) => {
         }
       });
       
-      console.log('✅ Pub/Sub subscription created:', subscription.name);
+      console.log('Pub/Sub subscription created:', subscription.name);
       
       res.json({
         success: true,
@@ -1138,7 +1535,7 @@ app.post('/api/setup-pubsub-topic', async (req, res) => {
       
     } catch (error) {
       if (error.code === 6) { // Topic already exists
-        console.log('ℹ️ Pub/Sub topic already exists');
+        console.log('Pub/Sub topic already exists');
         res.json({
           success: true,
           message: 'Pub/Sub topic already exists',
@@ -1190,21 +1587,21 @@ app.get('/api/gmail-watch-status/:userId', async (req, res) => {
 app.post('/api/reactivate-gmail-watch/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    console.log('🔄 Reactivating Gmail watch for user:', userId);
+    console.log('Reactivating Gmail watch for user:', userId);
     
     const gmailWatchService = require('./services/gmailwatchservice');
     
     // Stop existing watch first (if any)
     try {
       await gmailWatchService.stopEmailWatch(userId);
-      console.log('✅ Stopped existing Gmail watch');
+      console.log('Stopped existing Gmail watch');
     } catch (error) {
-      console.log('⚠️  No existing watch to stop or error stopping:', error.message);
+      console.log('No existing watch to stop or error stopping:', error.message);
     }
     
     // Start new watch
     const result = await gmailWatchService.startEmailWatch(userId);
-    console.log('✅ Gmail watch reactivated:', result);
+    console.log('Gmail watch reactivated:', result);
     
     res.json({
       success: true,
@@ -1213,7 +1610,7 @@ app.post('/api/reactivate-gmail-watch/:userId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error reactivating Gmail watch:', error);
+    console.error('Error reactivating Gmail watch:', error);
     res.status(500).json({ 
       error: 'Failed to reactivate Gmail watch',
       details: error.message
@@ -1235,6 +1632,7 @@ app.post('/api/test-add-to-queue/:userId', async (req, res) => {
       date: new Date().toISOString(),
       messageId: 'test-message-' + Date.now()
     };
+    
     const queueRef = await firebaseAdmin.db
       .collection('users')
       .doc(userId)
@@ -1250,7 +1648,8 @@ app.post('/api/test-add-to-queue/:userId', async (req, res) => {
         userId: userId,
         source: 'test_endpoint'
       });
-    console.log('✅ Test email added to auto-reply queue:', queueRef.id);
+      
+    console.log('Test email added to auto-reply queue:', queueRef.id);
     
     res.json({
       success: true,
@@ -1290,7 +1689,7 @@ app.get('/api/check-google-connection/:userId', async (req, res) => {
   }
 });
 
-// Replace the broken token refresh endpoint with this working one
+// Refresh Google tokens endpoint
 app.post('/api/refresh-google-tokens/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -1305,7 +1704,7 @@ app.post('/api/refresh-google-tokens/:userId', async (req, res) => {
       return res.status(400).json({ error: 'No refresh token found' });
     }
     
-    console.log('🔄 Refreshing Google tokens for user:', userId);
+    console.log('Refreshing Google tokens for user:', userId);
     
     // Create OAuth2 client with credentials
     const { google } = require('googleapis');
@@ -1323,7 +1722,7 @@ app.post('/api/refresh-google-tokens/:userId', async (req, res) => {
     // Get new access token
     const { credentials } = await oauth2Client.refreshAccessToken();
     
-    console.log('✅ New access token obtained');
+    console.log('New access token obtained');
     
     // Update user with new access token
     await firebaseAdmin.db.collection('users').doc(userId).update({
@@ -1331,7 +1730,7 @@ app.post('/api/refresh-google-tokens/:userId', async (req, res) => {
       googleTokenExpiry: new Date(credentials.expiry_date || Date.now() + 3600000) // 1 hour default
     });
     
-    console.log('✅ User tokens updated in database');
+    console.log('User tokens updated in database');
     
     res.json({
       success: true,
@@ -1341,7 +1740,7 @@ app.post('/api/refresh-google-tokens/:userId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error refreshing tokens:', error);
+    console.error('Error refreshing tokens:', error);
     res.status(500).json({ 
       error: 'Failed to refresh tokens',
       details: error.message 
@@ -1386,7 +1785,7 @@ process.on('SIGINT', () => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔥 Firebase Admin: ${firebaseAdmin.isInitialized() ? '✅ Connected' : '❌ Not Connected'}`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Firebase Admin: ${firebaseAdmin.isInitialized() ? 'Connected' : 'Not Connected'}`);
 });

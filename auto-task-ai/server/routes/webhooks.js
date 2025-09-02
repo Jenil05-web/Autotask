@@ -281,14 +281,21 @@ async function processHistoryChangesManually(userId, historyId, refreshToken, re
 
             // Only process if this is an incoming email (not sent by the user)
             if (fromEmail && fromEmail.toLowerCase() !== userEmail?.toLowerCase()) {
-              console.log(`📥 [${requestId}] Adding incoming email to auto-reply queue:`, {
-                from: fromEmail,
-                subject: subjectHeader?.value,
-                messageId: message.id
-              });
-
-              // Add to auto-reply queue
-              await addToAutoReplyQueue(userId, messageDetails.data, fromEmail, requestId);
+              
+              // 🚨 NEW FILTERING LOGIC - Only process legitimate replies
+              const shouldProcessEmail = await shouldSendAutoReply(userId, fromEmail, subjectHeader?.value, messageDetails.data.threadId, requestId);
+              
+              if (shouldProcessEmail) {
+                console.log(`📥 [${requestId}] Adding legitimate reply to auto-reply queue:`, {
+                  from: fromEmail,
+                  subject: subjectHeader?.value,
+                  messageId: message.id
+                });
+                // Add to auto-reply queue
+                await addToAutoReplyQueue(userId, messageDetails.data, fromEmail, requestId);
+              } else {
+                console.log(`🚫 [${requestId}] Skipping non-reply email from:`, fromEmail);
+              }
             } else {
               console.log(`📤 [${requestId}] Skipping outgoing email from user`);
             }
@@ -308,6 +315,239 @@ async function processHistoryChangesManually(userId, historyId, refreshToken, re
   } catch (error) {
     console.error(`❌ [${requestId}] Error in manual history processing:`, error);
     throw error;
+  }
+}
+
+/**
+ * Enhanced email filtering to determine if we should send auto-reply
+ * This function implements comprehensive filtering to only process legitimate replies
+ */
+async function shouldSendAutoReply(userId, fromEmail, subject, threadId, requestId = 'filter') {
+  try {
+    console.log(`🔍 [${requestId}] Starting email filtering for: ${fromEmail}`);
+    
+    // 1. ENHANCED Skip patterns for promotional/automated emails
+    const skipPatterns = [
+      // No-reply patterns
+      'no-reply', 'noreply', 'donotreply', 'do-not-reply', 'no.reply',
+      
+      // Marketing/promotional patterns
+      'marketing', 'newsletter', 'promotion', 'promo', 'deals', 'offer',
+      'communications', 'campaigns', 'broadcast', 'bulk',
+      
+      // Notifications/alerts
+      'notification', 'notify', 'alert', 'alerts', 'reminder',
+      'update', 'updates', 'status', 'report',
+      
+      // Support/system patterns
+      'support', 'help', 'service', 'system', 'admin', 'administrator',
+      'postmaster', 'mailer-daemon', 'bounce', 'delivery',
+      
+      // Security/verification
+      'security', 'verify', 'verification', 'confirm', 'confirmation',
+      'reset', 'password', 'account', 'team',
+      
+      // Social media patterns
+      'facebook', 'twitter', 'linkedin', 'instagram', 'youtube',
+      'social', 'feed', 'digest',
+      
+      // E-commerce patterns
+      'order', 'invoice', 'receipt', 'payment', 'billing', 'subscription',
+      'shipping', 'delivery', 'tracking'
+    ];
+    
+    // 2. ENHANCED Domain-based filtering
+    const skipDomains = [
+      // Major platforms
+      'facebook.com', 'twitter.com', 'linkedin.com', 'instagram.com',
+      'youtube.com', 'google.com', 'microsoft.com', 'apple.com',
+      
+      // E-commerce
+      'amazon.com', 'ebay.com', 'paypal.com', 'stripe.com',
+      'shopify.com', 'etsy.com', 'alibaba.com',
+      
+      // Email services
+      'mailchimp.com', 'constantcontact.com', 'sendgrid.com',
+      'mailgun.com', 'postmark.com', 'ses.amazonaws.com',
+      
+      // News/media
+      'news.com', 'cnn.com', 'bbc.com', 'reuters.com', 'medium.com',
+      'substack.com', 'newsletter.com',
+      
+      // Banking/financial
+      'bank.com', 'banking.com', 'paypal.com', 'visa.com', 'mastercard.com',
+      'americanexpress.com', 'wells', 'chase.com', 'citibank.com',
+      
+      // Common automated services
+      'zendesk.com', 'intercom.com', 'hubspot.com', 'salesforce.com',
+      'slack.com', 'trello.com', 'asana.com', 'monday.com'
+    ];
+    
+    const fromEmailLower = fromEmail.toLowerCase();
+    const subjectLower = (subject || '').toLowerCase();
+    
+    // Check email patterns
+    for (const pattern of skipPatterns) {
+      if (fromEmailLower.includes(pattern)) {
+        console.log(`🚫 [${requestId}] Skipping email with pattern "${pattern}" from: ${fromEmail}`);
+        return false;
+      }
+    }
+    
+    // Check domain patterns
+    for (const domain of skipDomains) {
+      if (fromEmailLower.includes(domain)) {
+        console.log(`🚫 [${requestId}] Skipping email from domain "${domain}": ${fromEmail}`);
+        return false;
+      }
+    }
+    
+    // 3. ENHANCED Subject line filtering
+    const skipSubjectPatterns = [
+      // Marketing subjects
+      'newsletter', 'deals', 'offer', 'sale', 'discount', 'promo',
+      'special offer', 'limited time', 'act now', 'don\'t miss',
+      
+      // Notifications
+      'alert', 'notification', 'reminder', 'update', 'status',
+      'action required', 'urgent', 'important notice',
+      
+      // Automated systems
+      'delivery failure', 'undelivered mail', 'mailer-daemon',
+      'out of office', 'auto reply', 'automatic reply',
+      
+      // Registration/verification
+      'verify your email', 'confirm your account', 'registration',
+      'welcome to', 'thank you for signing up', 'activate',
+      
+      // Banking/financial alerts
+      'statement', 'balance', 'transaction', 'payment due',
+      'card ending', 'security alert', 'fraud alert'
+    ];
+    
+    // Check subject patterns
+    for (const pattern of skipSubjectPatterns) {
+      if (subjectLower.includes(pattern)) {
+        console.log(`🚫 [${requestId}] Skipping email with subject pattern "${pattern}": ${subject}`);
+        return false;
+      }
+    }
+    
+    // 4. Check if sender is in our sent emails (recipient list)
+    console.log(`🔍 [${requestId}] Checking if we've sent emails to: ${fromEmail}`);
+    const sentEmailsQuery = await firebaseService.db
+      .collection('users')
+      .doc(userId)
+      .collection('scheduledEmails')
+      .where('recipients', 'array-contains', fromEmail)
+      .where('status', '==', 'sent')
+      .orderBy('sentAt', 'desc')
+      .limit(10)
+      .get();
+    
+    if (sentEmailsQuery.empty) {
+      console.log(`🚫 [${requestId}] No sent emails found to: ${fromEmail} - not processing`);
+      return false;
+    }
+    
+    console.log(`✅ [${requestId}] Found ${sentEmailsQuery.docs.length} sent email(s) to: ${fromEmail}`);
+    
+    // 5. Check if any sent email had auto-reply enabled
+    let hasAutoReplyEnabled = false;
+    let sentEmailWithAutoReply = null;
+    
+    for (const doc of sentEmailsQuery.docs) {
+      const emailData = doc.data();
+      console.log(`🔍 [${requestId}] Checking sent email:`, {
+        id: doc.id,
+        subject: emailData.subject,
+        autoReplyEnabled: emailData.autoReplyEnabled,
+        sentAt: emailData.sentAt?.toDate?.()
+      });
+      
+      if (emailData.autoReplyEnabled) {
+        hasAutoReplyEnabled = true;
+        sentEmailWithAutoReply = emailData;
+        console.log(`✅ [${requestId}] Found sent email with auto-reply enabled to: ${fromEmail}`);
+        break;
+      }
+    }
+    
+    if (!hasAutoReplyEnabled) {
+      console.log(`🚫 [${requestId}] No auto-reply enabled emails found for: ${fromEmail}`);
+      return false;
+    }
+    
+    // 6. Enhanced reply detection
+    const replyIndicators = [
+      // Standard reply prefixes
+      subjectLower.startsWith('re:'),
+      subjectLower.startsWith('reply:'),
+      subjectLower.startsWith('response:'),
+      
+      // Thank you patterns
+      subjectLower.includes('thank you'),
+      subjectLower.includes('thanks'),
+      subjectLower.includes('thank u'),
+      subjectLower.includes('thx'),
+      
+      // Question/inquiry responses
+      subjectLower.includes('regarding'),
+      subjectLower.includes('about your'),
+      subjectLower.includes('in response'),
+      
+      // Acknowledgment patterns
+      subjectLower.includes('received'),
+      subjectLower.includes('got it'),
+      subjectLower.includes('understood'),
+      
+      // Follow-up patterns
+      subjectLower.includes('follow up'),
+      subjectLower.includes('following up')
+    ];
+    
+    const isReply = replyIndicators.some(indicator => indicator === true);
+    
+    if (!isReply) {
+      console.log(`🚫 [${requestId}] Email doesn't look like a reply - Subject: ${subject}`);
+      return false;
+    }
+    
+    // 7. Check for recent auto-replies to avoid loops
+    console.log(`🔍 [${requestId}] Checking for recent auto-replies to prevent loops`);
+    const recentAutoReplies = await firebaseService.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .where('emailData.from', '==', fromEmail)
+      .where('status', '==', 'completed')
+      .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000))) // Last 24 hours
+      .limit(5)
+      .get();
+    
+    if (!recentAutoReplies.empty) {
+      console.log(`🚫 [${requestId}] Recent auto-reply found for ${fromEmail} - preventing loop`);
+      return false;
+    }
+    
+    // 8. Final validation - ensure this isn't our own auto-reply
+    if (subjectLower.includes('auto reply') || subjectLower.includes('automatic reply')) {
+      console.log(`🚫 [${requestId}] Detected auto-reply message - skipping to prevent loop`);
+      return false;
+    }
+    
+    console.log(`✅ [${requestId}] Email passed ALL filters - will process auto-reply for: ${fromEmail}`);
+    console.log(`📧 [${requestId}] Auto-reply will be based on sent email:`, {
+      subject: sentEmailWithAutoReply?.subject,
+      sentAt: sentEmailWithAutoReply?.sentAt?.toDate?.(),
+      autoReplyTemplate: sentEmailWithAutoReply?.autoReplyTemplate
+    });
+    
+    return true;
+    
+  } catch (error) {
+    console.error(`❌ [${requestId}] Error in shouldSendAutoReply:`, error);
+    return false; // Default to not sending if error
   }
 }
 
@@ -359,7 +599,9 @@ async function addToAutoReplyQueue(userId, messageData, fromEmail, requestId = '
         retryCount: 0,
         maxRetries: 3,
         userId: userId,
-        source: 'gmail_webhook'
+        source: 'gmail_webhook',
+        filterPassed: true, // Mark that this email passed our filtering
+        processedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
     console.log(`✅ [${requestId}] Email added to auto-reply queue:`, {
@@ -489,7 +731,9 @@ router.post('/manual-test/:userId', async (req, res) => {
         retryCount: 0,
         maxRetries: 3,
         userId: userId,
-        source: 'manual_test'
+        source: 'manual_test',
+        filterPassed: true,
+        bypassFilters: true // Mark as bypassing filters for testing
       });
     
     console.log('✅ Manual test completed, queue ID:', queueRef.id);
@@ -554,6 +798,22 @@ router.get('/queue-status/:userId', async (req, res) => {
       });
     });
     
+    // Get filtering statistics
+    const filteredSnapshot = await firebaseService.db
+      .collection('users')
+      .doc(userId)
+      .collection('webhookLogs')
+      .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000))) // Last 24 hours
+      .orderBy('timestamp', 'desc')
+      .limit(20)
+      .get();
+    
+    const webhookStats = {
+      total: filteredSnapshot.docs.length,
+      successful: filteredSnapshot.docs.filter(doc => doc.data().status === 'success').length,
+      errors: filteredSnapshot.docs.filter(doc => doc.data().status === 'error').length
+    };
+    
     res.json({
       success: true,
       userId: userId,
@@ -565,6 +825,7 @@ router.get('/queue-status/:userId', async (req, res) => {
         count: processedItems.length,
         items: processedItems
       },
+      webhookStats: webhookStats,
       timestamp: new Date().toISOString()
     });
     
@@ -614,13 +875,54 @@ router.post('/test', async (req, res) => {
   }
 });
 
+// Enhanced endpoint to manually check if email should trigger auto-reply
+router.post('/check-filter/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { fromEmail, subject, threadId } = req.body;
+    
+    if (!fromEmail) {
+      return res.status(400).json({
+        error: 'Missing fromEmail parameter'
+      });
+    }
+    
+    console.log('🔍 Manual filter check for:', { userId, fromEmail, subject });
+    
+    const shouldProcess = await shouldSendAutoReply(userId, fromEmail, subject, threadId, 'manual-check');
+    
+    res.json({
+      success: true,
+      userId: userId,
+      fromEmail: fromEmail,
+      subject: subject,
+      shouldSendAutoReply: shouldProcess,
+      message: shouldProcess ? 'Email would trigger auto-reply' : 'Email would be filtered out',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in manual filter check:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
     service: 'gmail-webhook',
     timestamp: new Date().toISOString(),
-    webhookUrl: '/api/webhooks/gmail'
+    webhookUrl: '/api/webhooks/gmail',
+    features: {
+      emailFiltering: 'enhanced',
+      autoReplyQueue: 'enabled',
+      rateLimiting: 'enabled',
+      loopPrevention: 'enabled'
+    }
   });
 });
 
@@ -645,6 +947,54 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// Enhanced filtering stats endpoint
+router.get('/filter-stats/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    // Get last 24 hours of webhook logs
+    const logsSnapshot = await firebaseService.db
+      .collection('users')
+      .doc(userId)
+      .collection('webhookLogs')
+      .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000)))
+      .orderBy('timestamp', 'desc')
+      .get();
+    
+    // Get queue items with filtering info
+    const queueSnapshot = await firebaseService.db
+      .collection('users')
+      .doc(userId)
+      .collection('autoReplyQueue')
+      .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000)))
+      .get();
+    
+    const stats = {
+      webhookEvents: logsSnapshot.docs.length,
+      emailsProcessed: queueSnapshot.docs.length,
+      emailsFiltered: logsSnapshot.docs.length - queueSnapshot.docs.length,
+      filterEfficiency: logsSnapshot.docs.length > 0 ? 
+        ((logsSnapshot.docs.length - queueSnapshot.docs.length) / logsSnapshot.docs.length * 100).toFixed(1) + '%' : 
+        '0%',
+      lastUpdated: new Date().toISOString()
+    };
+    
+    res.json({
+      success: true,
+      userId: userId,
+      period: 'last_24_hours',
+      stats: stats
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting filter stats:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Cleanup rate limit cache periodically
 setInterval(() => {
   const now = Date.now();
@@ -654,6 +1004,7 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000); // Clean up every 5 minutes
+
 // GET endpoint for webhook testing and verification
 router.get('/gmail', (req, res) => {
   const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -678,7 +1029,13 @@ router.get('/gmail', (req, res) => {
     webhook: {
       status: 'active',
       url: req.protocol + '://' + req.get('host') + req.originalUrl,
-      description: 'Gmail Push Notification webhook endpoint'
+      description: 'Gmail Push Notification webhook endpoint with enhanced filtering'
+    },
+    features: {
+      enhancedFiltering: true,
+      loopPrevention: true,
+      rateLimiting: true,
+      comprehensiveLogging: true
     }
   });
 });
