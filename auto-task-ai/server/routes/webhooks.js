@@ -654,5 +654,33 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000); // Clean up every 5 minutes
+// GET endpoint for webhook testing and verification
+router.get('/gmail', (req, res) => {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  console.log(`🔍 [${requestId}] Gmail webhook GET request received`);
+  
+  // Handle Gmail webhook verification challenge if present
+  if (req.query.validationToken) {
+    console.log(`✅ [${requestId}] Gmail webhook validation token received`);
+    return res.status(200).send(req.query.validationToken);
+  }
+  
+  // Regular GET test response
+  res.status(200).json({ 
+    success: true, 
+    message: 'Gmail webhook endpoint is accessible',
+    endpoint: '/api/webhooks/gmail',
+    method: 'GET',
+    timestamp: new Date().toISOString(),
+    requestId: requestId,
+    availableMethods: ['GET', 'POST'],
+    webhook: {
+      status: 'active',
+      url: req.protocol + '://' + req.get('host') + req.originalUrl,
+      description: 'Gmail Push Notification webhook endpoint'
+    }
+  });
+});
 
 module.exports = router;

@@ -61,6 +61,75 @@ app.get('/debug/find-user/:email', async (req, res) => {
         suggestion: "Make sure you're logged into the app first"
       });
 
+// Gmail watch setup - ADD TO server.js
+app.post('/api/setup-gmail-watch-final/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const ngrokUrl = 'https://31976d8fb0ac.ngrok-free.app';
+    
+    console.log('🔧 Setting up Gmail watch for user:', userId);
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      access_token: userData.googleAccessToken,
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    // Get fresh access token
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    oauth2Client.setCredentials(credentials);
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // Stop existing watch
+    try {
+      await gmail.users.stop({ userId: 'me' });
+      console.log('📛 Stopped existing Gmail watch');
+    } catch (error) {
+      console.log('ℹ️ No existing watch to stop');
+    }
+    
+    // Start new watch
+    const watchResponse = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        labelIds: ['INBOX'],
+        topicName: 'projects/auto-task-ai-436014/topics/gmail-notifications'
+      }
+    });
+    
+    console.log('✅ Gmail watch setup completed');
+    
+    res.json({
+      success: true,
+      message: 'Gmail watch configured successfully - ready for real email notifications',
+      watchData: {
+        historyId: watchResponse.data.historyId,
+        expiration: new Date(parseInt(watchResponse.data.expiration)),
+        webhookUrl: `${ngrokUrl}/api/webhooks/gmail`
+      },
+      nextStep: 'Send emails with auto-reply enabled and test with real replies'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error setting up Gmail watch:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Gmail webhook endpoint - ADD THIS TO YOUR server.js
 app.post('/api/webhooks/gmail', async (req, res) => {
   try {
@@ -359,8 +428,8 @@ app.post('/debug/test-auto-reply', async (req, res) => {
     const testQueueItem = {
       status: 'pending',
       userId: userId,
-      createdAt: new Date(),
-scheduledFor: new Date(), // ✅ Immediate scheduling
+      createdAt: admin.firestore.FieldValue.serverTimestamp(), // ✅ Correct reference
+      scheduledFor: admin.firestore.FieldValue.serverTimestamp(), // ✅ Immediate scheduling
       originalEmail: {
         id: `test-${Date.now()}`,
         threadId: `thread-${Date.now()}`,
@@ -701,8 +770,8 @@ app.post('/api/simulate-incoming-reply/:userId', async (req, res) => {
         emailData: incomingReply,
         status: 'pending',
         priority: 'normal',
-        createdAt: new Date(),
-scheduledFor: new Date(),
+        createdAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+        scheduledFor: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
         retryCount: 0,
         maxRetries: 3,
         userId: userId,
@@ -898,8 +967,8 @@ app.post('/api/dashboard/test-auto-reply/:userId', async (req, res) => {
         emailData: testEmail,
         status: 'pending',
         priority: 'high',
-       createdAt: new Date(),
-scheduledFor: new Date(),
+        createdAt: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
+        scheduledFor: firebaseAdmin.admin.firestore.FieldValue.serverTimestamp(),
         retryCount: 0,
         maxRetries: 3,
         userId: userId,
