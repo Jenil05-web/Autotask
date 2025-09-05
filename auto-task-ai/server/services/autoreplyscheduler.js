@@ -73,7 +73,46 @@ class AutoReplyScheduler {
       console.error('❌ Failed to start auto-reply scheduler:', error.message);
       throw error;
     }
+  }/**
+ * Clear all pending auto-reply queue items
+ */
+async clearPendingQueue() {
+  try {
+    const firebaseAdmin = require('./firebaseAdmin');
+    const db = firebaseAdmin.db;
+    
+    console.log('🧹 Clearing pending auto-reply queue...');
+    
+    // Get all users
+    const usersSnapshot = await db.collection('users').get();
+    let deletedCount = 0;
+    
+    for (const userDoc of usersSnapshot.docs) {
+      const pendingSnapshot = await db
+        .collection('users')
+        .doc(userDoc.id)
+        .collection('autoReplyQueue')
+        .where('status', 'in', ['pending', 'scheduled', 'processing'])
+        .get();
+      
+      const batch = db.batch();
+      pendingSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      
+      if (!pendingSnapshot.empty) {
+        await batch.commit();
+        deletedCount += pendingSnapshot.size;
+      }
+    }
+    
+    console.log(`🗑️ Cleared ${deletedCount} pending auto-reply items from queue`);
+    return deletedCount;
+  } catch (error) {
+    console.error('❌ Failed to clear pending queue:', error.message);
+    throw error;
   }
+}
 
   /**
    * Stop the auto-reply scheduler

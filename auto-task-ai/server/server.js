@@ -1167,6 +1167,54 @@ app.post('/api/setup-gmail-watch-fixed/:userId', async (req, res) => {
   }
 });
 // EMERGENCY STOP Gmail watch
+// EMERGENCY STOP Gmail watch
+app.post('/api/emergency-stop-gmail-watch/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    console.log('🚨 EMERGENCY STOP - Stopping ALL Gmail watches');
+    
+    const userDoc = await firebaseAdmin.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      access_token: userData.googleAccessToken,
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    oauth2Client.setCredentials(credentials);
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // STOP ALL Gmail watches
+    await gmail.users.stop({ userId: 'me' });
+    
+    console.log('✅ ALL Gmail watches STOPPED');
+    
+    res.json({
+      success: true,
+      message: 'EMERGENCY STOP: All Gmail watches stopped, auto-replies disabled'
+    });
+    
+  } catch (error) {
+    console.error('Error in emergency stop:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 app.post('/api/stop-gmail-watch/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
