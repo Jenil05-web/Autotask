@@ -29,6 +29,154 @@ class AIReplyService {
     this.aiRateLimit = new Map();
     this.AI_RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
     this.MAX_AI_CALLS_PER_MINUTE = 20;
+    
+    // Processing lock to prevent concurrent processing
+    this.isProcessing = false;
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Process auto-reply queue manually or via cron
+   * This is the missing endpoint method
+   */
+  async processQueue(options = {}) {
+    try {
+      // Prevent concurrent processing
+      if (this.isProcessing) {
+        return {
+          success: false,
+          message: 'Queue processing already in progress',
+          stats: this.getStats()
+        };
+      }
+
+      this.isProcessing = true;
+      console.log('🚀 Starting auto-reply queue processing...');
+
+      const result = await this.processAutoReplyQueue();
+      
+      return {
+        success: true,
+        message: `Queue processed successfully: ${result.processed} processed, ${result.failed} failed`,
+        processed: result.processed,
+        failed: result.failed,
+        stats: this.getStats()
+      };
+    } catch (error) {
+      console.error('❌ Error in processQueue endpoint:', error);
+      return {
+        success: false,
+        error: error.message,
+        stats: this.getStats()
+      };
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Add email to auto-reply queue
+   */
+  async addToQueue(userId, emailData, options = {}) {
+    try {
+      console.log('📥 Adding email to auto-reply queue for user:', userId);
+
+      // Validate required fields
+      if (!userId || !emailData) {
+        throw new Error('userId and emailData are required');
+      }
+
+      if (!emailData.from || !emailData.subject) {
+        throw new Error('Email must have from and subject fields');
+      }
+
+      // Check if user has active auto-reply settings
+      const userRef = db.collection('users').doc(userId);
+      const settingsSnapshot = await userRef
+        .collection('autoReplySettings')
+        .where('isActive', '==', true)
+        .limit(1)
+        .get();
+
+      if (settingsSnapshot.empty && !options.forceQueue) {
+        return {
+          success: false,
+          message: 'No active auto-reply settings found for user'
+        };
+      }
+
+      // Check for duplicates
+      if (await this.isDuplicateReply(userId, emailData)) {
+        return {
+          success: false,
+          message: 'Duplicate email already processed'
+        };
+      }
+
+      // Calculate schedule time
+      const delay = options.delayMinutes || 0;
+      const scheduledFor = new Date(Date.now() + (delay * 60 * 1000));
+
+      // Add to queue
+      const queueRef = await userRef.collection('autoReplyQueue').add({
+        emailData: emailData,
+        status: 'pending',
+        scheduledFor: scheduledFor,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        retryCount: 0,
+        options: options
+      });
+
+      console.log('✅ Email added to queue with ID:', queueRef.id);
+
+      return {
+        success: true,
+        queueId: queueRef.id,
+        scheduledFor: scheduledFor.toISOString(),
+        message: 'Email added to auto-reply queue successfully'
+      };
+    } catch (error) {
+      console.error('❌ Error adding to queue:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Get queue status for a user
+   */
+  async getQueueStatus(userId) {
+    try {
+      const userRef = db.collection('users').doc(userId);
+      
+      // Get queue statistics
+      const [pending, processing, completed, failed] = await Promise.all([
+        userRef.collection('autoReplyQueue').where('status', '==', 'pending').get(),
+        userRef.collection('autoReplyQueue').where('status', '==', 'processing').get(),
+        userRef.collection('autoReplyQueue').where('status', '==', 'sent').get(),
+        userRef.collection('autoReplyQueue').where('status', '==', 'failed').get()
+      ]);
+
+      return {
+        success: true,
+        status: {
+          pending: pending.size,
+          processing: processing.size,
+          completed: completed.size,
+          failed: failed.size,
+          total: pending.size + processing.size + completed.size + failed.size
+        },
+        isProcessing: this.isProcessing,
+        stats: this.getStats()
+      };
+    } catch (error) {
+      console.error('❌ Error getting queue status:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 
   /**
@@ -254,14 +402,14 @@ Personalized Email:`;
     try {
       console.log('Starting auto-reply queue processing...');
       
-    const pendingReplies = await db
-      .collectionGroup('autoReplyQueue')
-      .where('status', 'in', ['pending', 'scheduled']) // Also fix the status issue from before
-      .where('scheduledFor', '<=', new Date())
-      .where('retryCount', '<', 3)
-      .orderBy('scheduledFor', 'asc')
-      .limit(this.batchSize) // Use this.batchSize
-      .get();
+      const pendingReplies = await db
+        .collectionGroup('autoReplyQueue')
+        .where('status', 'in', ['pending', 'scheduled'])
+        .where('scheduledFor', '<=', new Date())
+        .where('retryCount', '<', 3)
+        .orderBy('scheduledFor', 'asc')
+        .limit(this.batchSize)
+        .get();
 
       if (pendingReplies.empty) {
         console.log('No pending auto-replies found');
@@ -270,15 +418,14 @@ Personalized Email:`;
 
       console.log(`Processing ${pendingReplies.docs.length} pending auto-replies`);
       
-      // Fixed: Bind the context properly
       const processPromises = pendingReplies.docs.map((doc) => {
         return this.processAutoReply(doc);
       });
 
       const results = await Promise.allSettled(processPromises);
 
-      const processed = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected').length;
+      const processed = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
+      const failed = results.filter(r => r.status === 'rejected' || !r.value?.success).length;
 
       console.log(`Auto-reply queue processing completed: ${processed} processed, ${failed} failed`);
       
@@ -296,11 +443,19 @@ Personalized Email:`;
    * Enhanced auto-reply processing with advanced logic
    */
   async processAutoReply(queueDoc) {
+    let updateData = {
+      status: 'processing',
+      processedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
     try {
       const queueData = queueDoc.data();
       const userId = queueDoc.ref.parent.parent.id;
       
       console.log('Processing auto-reply for user:', userId, 'Queue ID:', queueDoc.id);
+
+      // Update status to processing
+      await queueDoc.ref.update(updateData);
 
       // Get user document
       const userRef = db.collection('users').doc(userId);
@@ -317,10 +472,11 @@ Personalized Email:`;
         .limit(1)
         .get();
 
+      let settings;
       if (settingsSnapshot.empty) {
         console.log('No active auto-reply settings found, creating default...');
         
-        // Create default settings for testing
+        // Create default settings
         const defaultSettings = {
           isActive: true,
           useAI: false,
@@ -330,11 +486,9 @@ Personalized Email:`;
         };
         
         await userRef.collection('autoReplySettings').add(defaultSettings);
-        
-        // Use the default settings
-        var settings = defaultSettings;
+        settings = defaultSettings;
       } else {
-        var settings = settingsSnapshot.docs[0].data();
+        settings = settingsSnapshot.docs[0].data();
       }
 
       const emailData = queueData.emailData;
@@ -353,14 +507,13 @@ Personalized Email:`;
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         console.log('Duplicate reply cancelled for user:', userId);
-        return;
+        return { success: true, cancelled: true };
       }
 
       // Generate reply content
       let replyContent;
       let replyMetadata = {};
 
-      // Generate reply content
       if (settings.useAI && this.openai) {
         console.log('Generating AI reply...');
         const aiResult = await this.generateAutoReply(emailData, null, {
@@ -375,7 +528,6 @@ Personalized Email:`;
           replyMetadata.tokensUsed = aiResult.tokens_used;
           console.log('AI reply generated successfully');
         } else {
-          // Fallback to template
           console.log('AI failed, using template reply');
           replyContent = this.generateTemplateReply(emailData, settings);
           replyMetadata.aiGenerated = false;
@@ -402,11 +554,11 @@ Personalized Email:`;
 
       console.log('Auto-reply content generated:', replyContent.substring ? replyContent.substring(0, 50) + '...' : 'Generated');
       
-      // 🚀 COMPLETE THE PROCESSING (this is what was missing!)
-      await this.completeAutoReplyProcessing(queueDoc, replyContent, userId, settings);
+      // Complete the processing
+      const result = await this.completeAutoReplyProcessing(queueDoc, replyContent, userId, settings, replyMetadata);
       
       console.log(`Auto-reply processed successfully for user ${userId}`);
-      return { success: true, replyContent };
+      return { success: true, ...result };
 
     } catch (error) {
       console.error('Error processing auto-reply:', error);
@@ -420,7 +572,7 @@ Personalized Email:`;
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
       
-      throw error;
+      return { success: false, error: error.message };
     }
   }
 
@@ -433,9 +585,15 @@ Personalized Email:`;
       
       const emailService = require('./emailService');
       
-      // Extract reply details
-      const subject = replyContent.subject || `Re: ${originalEmail.subject}`;
-      const body = replyContent.body || replyContent;
+      // Handle both string and object reply content
+      let subject, body;
+      if (typeof replyContent === 'string') {
+        subject = `Re: ${originalEmail.subject}`;
+        body = replyContent;
+      } else {
+        subject = replyContent.subject || `Re: ${originalEmail.subject}`;
+        body = replyContent.body || replyContent.toString();
+      }
       
       // Determine reply recipient
       const replyTo = originalEmail.from;
@@ -450,13 +608,15 @@ Personalized Email:`;
         bodyPreview: body.substring(0, 100) + '...'
       });
       
-      // Send the auto-reply using the working emailService
+      // Send the auto-reply using the emailService
       const result = await emailService.sendEmail({
         userId: userId,
         to: [replyTo],
         subject: subject,
         html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${body.replace(/\n/g, '<br>')}</div>`,
-        text: body
+        text: body,
+        inReplyTo: originalEmail.messageId,
+        threadId: originalEmail.threadId
       });
       
       if (result.success) {
@@ -474,9 +634,9 @@ Personalized Email:`;
   }
 
   /**
-   * Complete the processAutoReply method (this was missing from the truncated file)
+   * Complete the processAutoReply method
    */
-  async completeAutoReplyProcessing(queueDoc, replyContent, userId, settings) {
+  async completeAutoReplyProcessing(queueDoc, replyContent, userId, settings, metadata = {}) {
     try {
       const queueData = queueDoc.data();
       const emailData = queueData.emailData;
@@ -496,9 +656,21 @@ Personalized Email:`;
           messageId: sendResult.messageId,
           threadId: sendResult.threadId
         },
-        replyContent: typeof replyContent === 'string' ? replyContent : replyContent.body,
+        replyContent: typeof replyContent === 'string' ? replyContent : replyContent.body || replyContent.toString(),
+        metadata: metadata,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
+      
+      // Record reply activity
+      await this.logReplyActivity(userId, emailData, replyContent, 'sent', {
+        ...metadata,
+        messageId: sendResult.messageId
+      });
+      
+      // Record reply to thread
+      if (emailData.threadId) {
+        await this.recordReplyToThread(userId, emailData.threadId, sendResult.messageId);
+      }
       
       console.log('✅ Auto-reply processed successfully for user:', userId);
       return { success: true, messageId: sendResult.messageId };
@@ -528,49 +700,15 @@ Personalized Email:`;
     
     const subject = settings.template?.subject || `Re: ${emailData.subject}`;
     
-    return {
-      subject: subject.replace('{originalSubject}', emailData.subject || 'your email'),
-      body: template
-    };
-  }
-
-  /**
-   * Enhanced auto-reply sending with better email composition (Legacy method - keeping for compatibility)
-   */
-  async sendAutoReplyLegacy(userId, originalEmail, replyContent, settings) {
-    try {
-      const emailService = require('./emailService');
-      
-      // Build proper email headers for threading
-      const replyEmail = {
-        to: originalEmail.from,
-        cc: settings.ccOnReplies ? settings.ccAddresses : undefined,
-        subject: this.buildReplySubject(originalEmail.subject),
-        body: this.buildReplyBody(replyContent, originalEmail, settings),
-        inReplyTo: originalEmail.messageId,
-        references: this.buildReferences(originalEmail),
-        threadId: originalEmail.threadId,
-        labels: ['SENT', 'AUTO_REPLY'],
-        metadata: {
-          autoReply: true,
-          originalMessageId: originalEmail.id,
-          generatedAt: new Date().toISOString()
-        }
-      };
-
-      const result = await emailService.sendEmail(userId, replyEmail);
-      
-      // Record that we replied to this thread
-      await this.recordReplyToThread(userId, originalEmail.threadId, result.messageId);
-      
-      return result;
-    } catch (error) {
-      console.error('Error sending auto-reply:', error);
+    // Handle both string and object returns for consistency
+    if (typeof template === 'string') {
       return {
-        success: false,
-        error: error.message
+        subject: subject.replace('{originalSubject}', emailData.subject || 'your email'),
+        body: template
       };
     }
+    
+    return template;
   }
 
   // Helper Methods
@@ -617,8 +755,8 @@ Auto-Reply:`;
   }
 
   classifyEmailType(email) {
-    const subject = email.subject.toLowerCase();
-    const body = email.body.toLowerCase();
+    const subject = email.subject?.toLowerCase() || '';
+    const body = email.body?.toLowerCase() || '';
     
     if (subject.includes('inquiry') || subject.includes('question') || body.includes('?')) {
       return 'inquiry';
@@ -636,6 +774,8 @@ Auto-Reply:`;
   }
 
   detectSentiment(text) {
+    if (!text) return 'neutral';
+    
     const positiveWords = ['thank', 'appreciate', 'great', 'excellent', 'wonderful', 'pleased'];
     const negativeWords = ['problem', 'issue', 'urgent', 'concerned', 'disappointed', 'frustrated'];
     
@@ -651,13 +791,13 @@ Auto-Reply:`;
 
   detectUrgency(email) {
     const urgentWords = ['urgent', 'asap', 'emergency', 'immediate', 'critical', 'rush'];
-    const text = (email.subject + ' ' + email.body).toLowerCase();
+    const text = ((email.subject || '') + ' ' + (email.body || '')).toLowerCase();
     
     const urgentCount = urgentWords.reduce((count, word) => 
       count + (text.includes(word) ? 1 : 0), 0);
     
     if (urgentCount > 0) return 'high';
-    if (email.subject.includes('Re: Re:') || text.includes('follow up')) return 'medium';
+    if ((email.subject || '').includes('Re: Re:') || text.includes('follow up')) return 'medium';
     return 'normal';
   }
 
@@ -668,7 +808,7 @@ Auto-Reply:`;
   }
 
   determineFollowUpType(email, daysWaited) {
-    const subject = email.subject.toLowerCase();
+    const subject = (email.subject || '').toLowerCase();
     
     if (subject.includes('proposal') || subject.includes('quote')) return 'business_proposal';
     if (subject.includes('meeting') || subject.includes('schedule')) return 'meeting_request';
@@ -704,22 +844,24 @@ Auto-Reply:`;
     let personalized = template;
     
     // Enhanced variable replacement with fallbacks
-    Object.keys(recipientData).forEach(key => {
-      const regex = new RegExp(`{{${key}}}`, 'g');
-      let value = recipientData[key];
-      
-      // Handle special formatting
-      if (key === 'name' && value) {
-        value = this.capitalizeWords(value);
-      } else if (key === 'company' && value) {
-        value = this.capitalizeWords(value);
-      }
-      
-      personalized = personalized.replace(regex, value || `[${key}]`);
-    });
+    if (recipientData && typeof recipientData === 'object') {
+      Object.keys(recipientData).forEach(key => {
+        const regex = new RegExp(`{{${key}}}`, 'g');
+        let value = recipientData[key];
+        
+        // Handle special formatting
+        if (key === 'name' && value) {
+          value = this.capitalizeWords(value);
+        } else if (key === 'company' && value) {
+          value = this.capitalizeWords(value);
+        }
+        
+        personalized = personalized.replace(regex, value || `[${key}]`);
+      });
+    }
     
     // Add contextual enhancements
-    if (context.addGreeting && recipientData.name) {
+    if (context.addGreeting && recipientData?.name) {
       personalized = `Hello ${recipientData.name},\n\n${personalized}`;
     }
     
@@ -752,12 +894,6 @@ Auto-Reply:`;
     };
   }
 
-  getTemplateReply(settings) {
-    return settings.customMessage || 
-           settings.template || 
-           'Thank you for your email. We will respond as soon as possible.';
-  }
-
   postProcessReply(reply, originalEmail, context) {
     // Remove any potential AI artifacts
     let processed = reply
@@ -774,6 +910,7 @@ Auto-Reply:`;
   }
 
   buildReplySubject(originalSubject) {
+    if (!originalSubject) return 'Re: Your Email';
     if (originalSubject.toLowerCase().startsWith('re:')) {
       return originalSubject;
     }
@@ -816,7 +953,7 @@ Auto-Reply:`;
         .collection('users')
         .doc(userId)
         .collection('sentReplies')
-        .where('originalMessageId', '==', emailData.id)
+        .where('originalMessageId', '==', emailData.id || emailData.messageId)
         .limit(1)
         .get();
       
@@ -843,17 +980,21 @@ Auto-Reply:`;
     }
   }
 
-  async logReplyActivity(userId, originalEmail, replyContent, status, metadata) {
+  async logReplyActivity(userId, originalEmail, replyContent, status, metadata = {}) {
     try {
+      const contentToLog = typeof replyContent === 'string' 
+        ? replyContent 
+        : replyContent.body || replyContent.toString();
+
       await db
         .collection('users')
         .doc(userId)
         .collection('replyActivity')
         .add({
-          originalMessageId: originalEmail.id,
+          originalMessageId: originalEmail.id || originalEmail.messageId,
           originalFrom: originalEmail.from,
           originalSubject: originalEmail.subject,
-          replyContent: replyContent.substring(0, 500), // Truncate for storage
+          replyContent: contentToLog.substring(0, 500), // Truncate for storage
           status: status,
           metadata: metadata,
           timestamp: admin.firestore.FieldValue.serverTimestamp()
@@ -905,17 +1046,255 @@ Auto-Reply:`;
   }
 
   capitalizeWords(str) {
+    if (!str || typeof str !== 'string') return str;
     return str.replace(/\w\S*/g, (txt) => 
       txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
     );
   }
 
+  /**
+   * PUBLIC ENDPOINT: Get service statistics
+   */
   getStats() {
     return {
       ...this.stats,
       cacheSize: this.responseCache.size,
-      rateLimitEntries: this.aiRateLimit.size
+      rateLimitEntries: this.aiRateLimit.size,
+      isProcessing: this.isProcessing,
+      lastUpdated: new Date().toISOString()
     };
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Clear failed queue items
+   */
+  async clearFailedQueueItems(userId, olderThanDays = 7) {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+      const userRef = db.collection('users').doc(userId);
+      const failedItems = await userRef
+        .collection('autoReplyQueue')
+        .where('status', '==', 'failed')
+        .where('createdAt', '<', cutoffDate)
+        .get();
+
+      const deletePromises = failedItems.docs.map(doc => doc.ref.delete());
+      await Promise.all(deletePromises);
+
+      return {
+        success: true,
+        deletedCount: failedItems.size,
+        message: `Cleared ${failedItems.size} failed queue items older than ${olderThanDays} days`
+      };
+    } catch (error) {
+      console.error('Error clearing failed queue items:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Retry failed queue items
+   */
+  async retryFailedQueueItems(userId, maxRetries = 3) {
+    try {
+      const userRef = db.collection('users').doc(userId);
+      const failedItems = await userRef
+        .collection('autoReplyQueue')
+        .where('status', '==', 'failed')
+        .where('retryCount', '<', maxRetries)
+        .get();
+
+      const updatePromises = failedItems.docs.map(doc => 
+        doc.ref.update({
+          status: 'pending',
+          scheduledFor: new Date(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        })
+      );
+
+      await Promise.all(updatePromises);
+
+      return {
+        success: true,
+        retriedCount: failedItems.size,
+        message: `Retried ${failedItems.size} failed queue items`
+      };
+    } catch (error) {
+      console.error('Error retrying failed queue items:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Test auto-reply generation
+   */
+  async testAutoReply(userId, sampleEmailData, options = {}) {
+    try {
+      console.log('🧪 Testing auto-reply generation...');
+
+      // Get user settings
+      const userRef = db.collection('users').doc(userId);
+      const settingsSnapshot = await userRef
+        .collection('autoReplySettings')
+        .where('isActive', '==', true)
+        .limit(1)
+        .get();
+
+      let settings;
+      if (settingsSnapshot.empty) {
+        settings = {
+          useAI: options.useAI || false,
+          customMessage: options.customMessage || "Thank you for your email. I will get back to you soon!",
+          includeDisclaimer: true
+        };
+      } else {
+        settings = settingsSnapshot.docs[0].data();
+      }
+
+      // Generate test reply
+      let replyContent;
+      if (settings.useAI && this.openai) {
+        const aiResult = await this.generateAutoReply(sampleEmailData, null, {
+          userId: userId,
+          settings: settings,
+          test: true
+        });
+        replyContent = aiResult.success ? aiResult.autoReply : this.generateTemplateReply(sampleEmailData, settings);
+      } else {
+        replyContent = this.generateTemplateReply(sampleEmailData, settings);
+      }
+
+      return {
+        success: true,
+        testReply: replyContent,
+        settings: settings,
+        message: 'Test auto-reply generated successfully'
+      };
+    } catch (error) {
+      console.error('Error testing auto-reply:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Update auto-reply settings
+   */
+  async updateAutoReplySettings(userId, newSettings) {
+    try {
+      const userRef = db.collection('users').doc(userId);
+      
+      // Get existing active settings
+      const existingSettings = await userRef
+        .collection('autoReplySettings')
+        .where('isActive', '==', true)
+        .get();
+
+      // Deactivate old settings
+      const deactivatePromises = existingSettings.docs.map(doc => 
+        doc.ref.update({ isActive: false })
+      );
+      await Promise.all(deactivatePromises);
+
+      // Create new active settings
+      const settingsToSave = {
+        ...newSettings,
+        isActive: true,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      const newSettingsRef = await userRef.collection('autoReplySettings').add(settingsToSave);
+
+      return {
+        success: true,
+        settingsId: newSettingsRef.id,
+        message: 'Auto-reply settings updated successfully'
+      };
+    } catch (error) {
+      console.error('Error updating auto-reply settings:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * PUBLIC ENDPOINT: Get auto-reply analytics
+   */
+  async getAnalytics(userId, days = 30) {
+    try {
+      const userRef = db.collection('users').doc(userId);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const [queueStats, activityStats] = await Promise.all([
+        // Queue statistics
+        Promise.all([
+          userRef.collection('autoReplyQueue').where('createdAt', '>=', startDate).get(),
+          userRef.collection('autoReplyQueue').where('createdAt', '>=', startDate).where('status', '==', 'sent').get(),
+          userRef.collection('autoReplyQueue').where('createdAt', '>=', startDate).where('status', '==', 'failed').get()
+        ]),
+        // Activity statistics
+        userRef.collection('replyActivity').where('timestamp', '>=', startDate).get()
+      ]);
+
+      const [total, sent, failed] = queueStats;
+      const activity = activityStats;
+
+      // Calculate AI vs template usage
+      let aiGenerated = 0;
+      let templateGenerated = 0;
+      
+      activity.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.metadata?.aiGenerated) {
+          aiGenerated++;
+        } else {
+          templateGenerated++;
+        }
+      });
+
+      return {
+        success: true,
+        analytics: {
+          period: `${days} days`,
+          queue: {
+            total: total.size,
+            sent: sent.size,
+            failed: failed.size,
+            pending: total.size - sent.size - failed.size,
+            successRate: total.size > 0 ? ((sent.size / total.size) * 100).toFixed(1) : 0
+          },
+          generation: {
+            aiGenerated,
+            templateGenerated,
+            total: aiGenerated + templateGenerated,
+            aiUsageRate: (aiGenerated + templateGenerated) > 0 
+              ? ((aiGenerated / (aiGenerated + templateGenerated)) * 100).toFixed(1) 
+              : 0
+          },
+          serviceStats: this.getStats()
+        }
+      };
+    } catch (error) {
+      console.error('Error getting analytics:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 
   // Cleanup method for graceful shutdown
@@ -923,7 +1302,48 @@ Auto-Reply:`;
     this.templateCache.clear();
     this.responseCache.clear();
     this.aiRateLimit.clear();
+    this.isProcessing = false;
     console.log('AI Reply Service cleanup completed');
+  }
+
+  /**
+   * LEGACY METHOD: Enhanced auto-reply sending with better email composition
+   * Keeping for backwards compatibility
+   */
+  async sendAutoReplyLegacy(userId, originalEmail, replyContent, settings) {
+    try {
+      const emailService = require('./emailService');
+      
+      // Build proper email headers for threading
+      const replyEmail = {
+        to: originalEmail.from,
+        cc: settings.ccOnReplies ? settings.ccAddresses : undefined,
+        subject: this.buildReplySubject(originalEmail.subject),
+        body: this.buildReplyBody(replyContent, originalEmail, settings),
+        inReplyTo: originalEmail.messageId,
+        references: this.buildReferences(originalEmail),
+        threadId: originalEmail.threadId,
+        labels: ['SENT', 'AUTO_REPLY'],
+        metadata: {
+          autoReply: true,
+          originalMessageId: originalEmail.id,
+          generatedAt: new Date().toISOString()
+        }
+      };
+
+      const result = await emailService.sendEmail(userId, replyEmail);
+      
+      // Record that we replied to this thread
+      await this.recordReplyToThread(userId, originalEmail.threadId, result.messageId);
+      
+      return result;
+    } catch (error) {
+      console.error('Error sending auto-reply (legacy):', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 }
 

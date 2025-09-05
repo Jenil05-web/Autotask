@@ -659,5 +659,113 @@ router.post('/google/test', authenticateToken, async (req, res) => {
     });
   }
 });
+// DEBUG ENDPOINT - Generate OAuth URL without JWT authentication
+router.get('/debug/oauth-url/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    console.log('🔧 DEBUG: Generating OAuth URL for user:', userId);
+    
+    // Verify user exists
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        userId: userId
+      });
+    }
+    
+    const userData = userDoc.data();
+    
+    // Generate OAuth URL with force consent to get fresh refresh token
+    const state = JSON.stringify({ 
+      userId: userId,
+      timestamp: Date.now(),
+      debug: true
+    });
+    
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent', // Force new refresh token
+      scope: [
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile'       
+      ],
+      state: state
+    });
+    
+    console.log('✅ DEBUG: OAuth URL generated for user:', userId);
+    console.log('📧 Current user email:', userData.googleEmail || 'Not set');
+    console.log('🔗 Auth URL:', authUrl);
+    
+    res.json({
+      success: true,
+      userId: userId,
+      currentEmail: userData.googleEmail || 'Not set',
+      hasRefreshToken: !!userData.googleRefreshToken,
+      tokenExpired: userData.googleTokenExpired || false,
+      authUrl: authUrl,
+      message: 'Copy this URL and open it in your browser to re-authenticate'
+    });
+    
+  } catch (error) {
+    console.error('❌ DEBUG: Error generating OAuth URL:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// DEBUG ENDPOINT - Check user OAuth status
+router.get('/debug/user-status/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return res.json({
+        exists: false,
+        userId: userId
+      });
+    }
+    
+    const userData = userDoc.data();
+    
+    res.json({
+      success: true,
+      exists: true,
+      userId: userId,
+      googleConnected: userData.googleConnected || false,
+      googleEmail: userData.googleEmail || null,
+      hasRefreshToken: !!userData.googleRefreshToken,
+      tokenExpired: userData.googleTokenExpired || false,
+      needsReauth: userData.needsReauth || false,
+      lastTokenError: userData.lastTokenError || null,
+      gmailWatch: {
+        status: userData.gmailWatch?.status || 'not_configured',
+        historyId: userData.gmailWatch?.historyId || null,
+        expiration: userData.gmailWatch?.expiration || null,
+        setupAt: userData.gmailWatch?.setupAt || null,
+        stoppedAt: userData.gmailWatch?.stoppedAt || null
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error checking user status:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
+
+
+
 
 module.exports = router;
