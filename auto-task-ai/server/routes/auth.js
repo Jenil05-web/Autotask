@@ -153,6 +153,121 @@ async function setupGmailWatch(userId, refreshToken) {
     throw watchError;
   }
 }
+// Stop Gmail push notifications
+router.post('/google/stop-watch', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    console.log('🛑 Stopping Gmail watch for user:', userId);
+    
+    // Get user's refresh token
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    const userData = userDoc.data();
+    if (!userData.googleRefreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Google refresh token found'
+      });
+    }
+    
+    // Initialize Gmail API
+    const oauth2ClientStop = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2ClientStop.setCredentials({
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2ClientStop });
+    
+    // Stop Gmail watch
+    await gmail.users.stop({
+      userId: 'me'
+    });
+    
+    // Update user document
+    await db.collection('users').doc(userId).update({
+      'gmailWatch.status': 'stopped',
+      'gmailWatch.stoppedAt': admin.firestore.FieldValue.serverTimestamp(),
+      'gmailWatch.stopReason': 'manual_stop'
+    });
+    
+    console.log('✅ Gmail watch stopped for user:', userId);
+    
+    res.json({
+      success: true,
+      message: 'Gmail push notifications stopped successfully',
+      userId: userId
+    });
+    
+  } catch (error) {
+    console.error('❌ Error stopping Gmail watch:', error);
+    
+    // Update status even if stop failed
+    try {
+      await db.collection('users').doc(req.user.uid).update({
+        'gmailWatch.status': 'stop_failed',
+        'gmailWatch.stopError': error.message,
+        'gmailWatch.stopAttempt': admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (updateError) {
+      console.error('Failed to update stop status:', updateError);
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to stop Gmail push notifications'
+    });
+  }
+});
+
+// Check Gmail connection status
+router.get('/google/status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return res.json({
+        connected: false,
+        error: 'User not found'
+      });
+    }
+    
+    const userData = userDoc.data();
+    
+    res.json({
+      success: true,
+      connected: userData.googleConnected || false,
+      email: userData.googleEmail || null,
+      hasRefreshToken: !!userData.googleRefreshToken,
+      gmailWatch: {
+        status: userData.gmailWatch?.status || 'not_configured',
+        historyId: userData.gmailWatch?.historyId || null,
+        expiration: userData.gmailWatch?.expiration || null,
+        setupAt: userData.gmailWatch?.setupAt || null,
+        stoppedAt: userData.gmailWatch?.stoppedAt || null
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error checking Google status:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // Step 2: Handle OAuth callback
 router.get('/google/callback', async (req, res) => {

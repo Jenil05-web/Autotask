@@ -38,7 +38,8 @@ app.use('/api/webhooks', webhooksRouter);
 app.use('/api/auto-reply', autoReplyRouter);
 
 // Start auto-reply scheduler
-autoReplyScheduler.start();
+console.log("Auto reply scheduler temperarily disabled for debugging");
+// autoReplyScheduler.start();
 
 // Debug endpoints
 app.get('/debug/find-user/:email', async (req, res) => {
@@ -571,6 +572,107 @@ app.post('/api/simulate-gmail-webhook/:userId', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+// Add this to your server.js file (around where other routes are defined)
+
+// Temporary debug endpoint to stop Gmail watch (NO AUTH REQUIRED)
+app.post('/api/debug/stop-gmail-watch/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId; // YYaZizyXAkQbunFdL11LQGXl2z82
+    console.log('🛑 DEBUG: Stopping Gmail watch for user:', userId);
+    
+    const admin = require('./services/firebaseAdmin');
+    const db = admin.db;
+    
+    // Get user's refresh token
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    const userData = userDoc.data();
+    if (!userData.googleRefreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Google refresh token found',
+        userData: {
+          hasToken: !!userData.googleRefreshToken,
+          hasEmail: !!userData.googleEmail,
+          connected: userData.googleConnected
+        }
+      });
+    }
+    
+    // Initialize Gmail API
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    
+    // Stop Gmail watch
+    await gmail.users.stop({
+      userId: 'me'
+    });
+    
+    // Update user document
+    await db.collection('users').doc(userId).update({
+      'gmailWatch.status': 'stopped',
+      'gmailWatch.stoppedAt': admin.firestore.FieldValue.serverTimestamp(),
+      'gmailWatch.stopReason': 'debug_stop'
+    });
+    
+    console.log('✅ DEBUG: Gmail watch stopped for user:', userId);
+    
+    res.json({
+      success: true,
+      message: 'Gmail push notifications stopped successfully',
+      userId: userId
+    });
+    
+  } catch (error) {
+    console.error('❌ DEBUG: Error stopping Gmail watch:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Debug endpoint to check user status
+app.get('/api/debug/user-status/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const admin = require('./services/firebaseAdmin');
+    const db = admin.db;
+    
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.json({ exists: false });
+    }
+    
+    const userData = userDoc.data();
+    res.json({
+      exists: true,
+      connected: userData.googleConnected || false,
+      email: userData.googleEmail || null,
+      hasRefreshToken: !!userData.googleRefreshToken,
+      gmailWatch: userData.gmailWatch || null
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Complete Gmail webhook simulation endpoint
 app.post('/api/test-gmail-webhook/:userId', async (req, res) => {
@@ -1037,7 +1139,7 @@ app.get('/api/dashboard/auto-reply-logs/:userId', async (req, res) => {
 app.post('/api/setup-gmail-watch-latest/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    const currentNgrokUrl = 'https://a01d88479ce5.ngrok-free.app'; // UPDATED URL
+    const currentNgrokUrl = 'https://16cf9e347321.ngrok-free.app'; // UPDATED URL
     
     console.log('Setting up Gmail watch for user:', userId);
     console.log('Using ngrok URL:', currentNgrokUrl);
