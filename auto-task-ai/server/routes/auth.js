@@ -64,6 +64,85 @@ router.get('/google/url', authenticateToken, (req, res) => {
       error: 'Failed to generate OAuth URL. Check server credentials.'
     });
   }
+});// DEBUG ENDPOINT - Setup Gmail watch (no JWT required)
+router.post('/debug/setup-gmail-watch/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    console.log('🔧 DEBUG: Setting up Gmail watch for user:', userId);
+    
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    const userData = userDoc.data();
+    if (!userData.googleRefreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Google refresh token found'
+      });
+    }
+    
+    // Initialize Gmail API
+    const oauth2ClientDebug = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2ClientDebug.setCredentials({
+      refresh_token: userData.googleRefreshToken
+    });
+    
+    const gmail = google.gmail({ version: 'v1', auth: oauth2ClientDebug });
+    
+    // Set up Gmail watch with YOUR existing topic name
+    const watchRequest = {
+      userId: 'me',
+      requestBody: {
+        topicName: `projects/${process.env.GOOGLE_CLOUD_PROJECT_ID}/topics/gmail-notifications`, // ← Using your existing topic
+        labelIds: ['INBOX']
+      }
+    };
+    
+    console.log('🔧 Gmail watch request:', watchRequest);
+    
+    const watchResponse = await gmail.users.watch(watchRequest);
+    console.log('✅ Gmail watch response:', watchResponse.data);
+    
+    // Update user document with active watch status
+    await db.collection('users').doc(userId).update({
+      'gmailWatch.status': 'active',
+      'gmailWatch.historyId': watchResponse.data.historyId,
+      'gmailWatch.expiration': new Date(parseInt(watchResponse.data.expiration)),
+      'gmailWatch.setupAt': admin.firestore.FieldValue.serverTimestamp(),
+      'gmailWatch.topicName': watchRequest.requestBody.topicName
+    });
+    
+    console.log('✅ DEBUG: Gmail watch setup successfully for user:', userId);
+    
+    res.json({
+      success: true,
+      message: 'Gmail watch setup successfully',
+      userId: userId,
+      watchData: {
+        historyId: watchResponse.data.historyId,
+        expiration: watchResponse.data.expiration,
+        topicName: watchRequest.requestBody.topicName
+      },
+      webhookUrl: 'https://6b863eee9186.ngrok-free.app/api/webhooks/gmail'
+    });
+    
+  } catch (error) {
+    console.error('❌ DEBUG: Error setting up Gmail watch:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Check Gmail watch status endpoint - ALREADY IMPLEMENTED CORRECTLY

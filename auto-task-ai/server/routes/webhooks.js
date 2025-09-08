@@ -43,9 +43,7 @@ const isRateLimited = (identifier) => {
 
 // Gmail webhook handler with detailed error logging
 router.post('/gmail', verifyWebhook, async (req, res) => {
-  console.log("📬 Gmail webhook temporarily disabled for debugging");
-   res.status(200).json({ success: true, message: 'Webhook disabled' });
-  return; // Exit early
+  
   const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   let decodedData = null;
   let userEmail = null;

@@ -5,7 +5,9 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const webhooksRouter = require('./routes/webhooks');
+const aiRouter = require('./routes/ai');
 const autoReplyRouter = require('./routes/autoreply');
+const authRouter = require('./routes/auth');
 const autoReplyScheduler = require('./services/autoreplyscheduler');
 
 // Import the Firebase Admin service (handles initialization properly)
@@ -17,6 +19,7 @@ const PORT = process.env.PORT || 5000;
 // Security middleware
 app.use(helmet());
 app.use(compression());
+
 
 // CORS configuration
 app.use(cors({
@@ -36,10 +39,12 @@ if (process.env.NODE_ENV !== 'production') {
 // Webhook and API routes
 app.use('/api/webhooks', webhooksRouter);
 app.use('/api/auto-reply', autoReplyRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/auth', authRouter);
 
 // Start auto-reply scheduler
-console.log("Auto reply scheduler temperarily disabled for debugging");
-// autoReplyScheduler.start();
+console.log('✅ Auto-reply scheduler started with fresh OAuth tokens');
+autoReplyScheduler.start();
 
 // Debug endpoints
 app.get('/debug/find-user/:email', async (req, res) => {
@@ -83,7 +88,7 @@ app.get('/debug/find-user/:email', async (req, res) => {
 app.post('/api/setup-gmail-watch-final/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    const ngrokUrl = 'https://31976d8fb0ac.ngrok-free.app';
+    const ngrokUrl = 'https://6f157011beca.ngrok-free.app';
     
     console.log('🔧 Setting up Gmail watch for user:', userId);
     
@@ -1898,13 +1903,18 @@ app.post('/api/refresh-google-tokens/:userId', async (req, res) => {
   }
 });
 
-// Import routes
-const emailRoutes = require('./routes/emails');
-const authRoutes = require('./routes/auth');
-
-// API routes
-app.use('/api/emails', emailRoutes);
-app.use('/api/auth', authRoutes);
+// Import routes with error handling
+try {
+  const emailRoutes = require('./routes/emails');
+  const authRoutes = require('./routes/autoreply'); // Note: you showed autoreply.js, not auth.js
+  
+  // API routes
+  app.use('/api/emails', emailRoutes);
+  app.use('/api/auto-reply', authRoutes); // Changed to match your autoreply routes
+} catch (error) {
+  console.error('Error loading routes:', error.message);
+  // Server will continue without these routes for now
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {
